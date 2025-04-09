@@ -23,8 +23,8 @@ def create_app(test_config=None):
         app.config.from_mapping(
             SECRET_KEY=os.getenv('SECRET_KEY', 'dev'),
             DB_TYPE=os.getenv('DB_TYPE', 'mongodb'),
-            MONGO_URI=os.getenv('MONGO_URI', 'mongodb://localhost:27017/tms_db'),
-            POSTGRES_URI=os.getenv('POSTGRES_URI', 'postgresql://postgres:postgres@localhost:5432/tms_db'),
+            MONGO_URI=os.getenv('MONGO_URI', 'mongodb://localhost:27017/tournament_management'),
+            POSTGRES_URI=os.getenv('POSTGRES_URI', 'postgresql://postgres:postgres@localhost:5432/tournament_management'),
         )
     else:
         app.config.from_mapping(test_config)
