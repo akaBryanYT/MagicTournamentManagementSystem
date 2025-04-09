@@ -1,38 +1,156 @@
-.App {
-  text-align: center;
+/* Global styles for the Tournament Management System */
+
+:root {
+  --primary-color: #2c3e50;
+  --secondary-color: #3498db;
+  --accent-color: #e74c3c;
+  --light-color: #ecf0f1;
+  --dark-color: #2c3e50;
+  --success-color: #2ecc71;
+  --warning-color: #f39c12;
+  --danger-color: #e74c3c;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+body {
+  font-family: 'Roboto', sans-serif;
+  background-color: #f8f9fa;
+  color: var(--dark-color);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.navbar {
+  background-color: var(--primary-color);
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
+.navbar-brand {
+  font-weight: bold;
+  color: white !important;
+}
+
+.nav-link {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+.nav-link:hover {
+  color: white !important;
+}
+
+.btn-primary {
+  background-color: var(--secondary-color);
+  border-color: var(--secondary-color);
+}
+
+.btn-primary:hover {
+  background-color: #2980b9;
+  border-color: #2980b9;
+}
+
+.btn-danger {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.card {
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  border: none;
+  margin-bottom: 20px;
+}
+
+.card-header {
+  background-color: var(--primary-color);
+  color: white;
+  font-weight: bold;
+}
+
+.table th {
+  background-color: var(--primary-color);
   color: white;
 }
 
-.App-link {
-  color: #61dafb;
+.footer {
+  background-color: var(--primary-color);
+  color: white;
+  padding: 20px 0;
+  margin-top: 30px;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
+/* Tournament status badges */
+.badge-planned {
+  background-color: var(--secondary-color);
+}
+
+.badge-active {
+  background-color: var(--success-color);
+}
+
+.badge-completed {
+  background-color: var(--dark-color);
+}
+
+/* Match result indicators */
+.result-win {
+  color: var(--success-color);
+  font-weight: bold;
+}
+
+.result-loss {
+  color: var(--danger-color);
+}
+
+.result-draw {
+  color: var(--warning-color);
+}
+
+/* Deck validation status */
+.validation-valid {
+  color: var(--success-color);
+}
+
+.validation-invalid {
+  color: var(--danger-color);
+}
+
+.validation-pending {
+  color: var(--warning-color);
+}
+
+/* Tournament wizard steps */
+.wizard-step {
+  padding: 10px;
+  margin-bottom: 15px;
+  border-radius: 5px;
+  background-color: var(--light-color);
+}
+
+.wizard-step.active {
+  background-color: var(--secondary-color);
+  color: white;
+}
+
+.wizard-step.completed {
+  background-color: var(--success-color);
+  color: white;
+}
+
+/* Standings table */
+.standings-table .first-place {
+  background-color: rgba(255, 215, 0, 0.2);
+}
+
+.standings-table .second-place {
+  background-color: rgba(192, 192, 192, 0.2);
+}
+
+.standings-table .third-place {
+  background-color: rgba(205, 127, 50, 0.2);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .table-responsive {
+    font-size: 0.9rem;
   }
-  to {
-    transform: rotate(360deg);
+  
+  .card-title {
+    font-size: 1.25rem;
   }
 }
