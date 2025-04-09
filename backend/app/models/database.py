@@ -11,7 +11,7 @@ import json
 # Database configuration
 class DatabaseConfig:
     """Database configuration for MongoDB."""
-    def __init__(self, host='localhost', port=27017, db_name='tms_db'):
+    def __init__(self, host='localhost', port=27017, db_name='tournament_management'):
         self.host = host
         self.port = port
         self.db_name = db_name
