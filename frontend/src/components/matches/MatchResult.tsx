@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Badge, Spinner, Form, Row, Col } from 'react-bootstrap';
 import { Link, useParams } from 'react-router-dom';
 
+// Add missing Alert import
+import { Alert } from 'react-bootstrap';
+
 interface MatchResultProps {}
 
 interface Match {
@@ -320,8 +323,5 @@ const MatchResult: React.FC<MatchResultProps> = () => {
     </div>
   );
 };
-
-// Add missing Alert import
-import { Alert } from 'react-bootstrap';
 
 export default MatchResult;

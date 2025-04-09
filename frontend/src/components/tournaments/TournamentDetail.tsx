@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Badge, Tabs, Tab, Alert, Row, Col, Spinner } from 'react-bootstrap';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 
+// Add missing Form import
+import { Form } from 'react-bootstrap';
+
 interface TournamentDetailProps {}
 
 interface Tournament {
@@ -534,8 +537,5 @@ const TournamentDetail: React.FC<TournamentDetailProps> = () => {
     </div>
   );
 };
-
-// Add missing Form import
-import { Form } from 'react-bootstrap';
 
 export default TournamentDetail;

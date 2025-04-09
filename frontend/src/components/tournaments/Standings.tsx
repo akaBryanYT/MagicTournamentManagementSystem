@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Badge, Spinner, Form, Row, Col } from 'react-bootstrap';
 import { Link, useParams } from 'react-router-dom';
 
+// Add missing Alert import
+import { Alert } from 'react-bootstrap';
+
 interface StandingsProps {}
 
 interface Standing {
@@ -168,8 +171,5 @@ const Standings: React.FC<StandingsProps> = () => {
     </div>
   );
 };
-
-// Add missing Alert import
-import { Alert } from 'react-bootstrap';
 
 export default Standings;
