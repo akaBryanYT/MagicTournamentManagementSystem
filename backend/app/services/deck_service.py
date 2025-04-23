@@ -168,38 +168,66 @@ class DeckService:
         except Exception as e:
             print(f"Error deleting deck: {e}")
             return False
-    
-    def import_deck_from_text(self, player_id, tournament_id, deck_text, format_name, deck_name=None):
-        """Import a deck from text format."""
+
+    def import_deck_from_moxfield(self, moxfield_url, player_id, tournament_id, name=None):
+        """Import a deck from Moxfield URL."""
         try:
-            # Parse deck text
-            main_deck, sideboard = self._parse_deck_text(deck_text)
+            import requests
+            from bs4 import BeautifulSoup
             
-            if not main_deck:
+            # Extract deck ID from URL
+            # Example: https://www.moxfield.com/decks/abc123
+            deck_id = moxfield_url.split('/')[-1]
+            
+            # Use Moxfield API to get deck data
+            api_url = f"https://api.moxfield.com/v2/decks/all/{deck_id}"
+            response = requests.get(api_url)
+            
+            if response.status_code != 200:
+                print(f"Error from Moxfield API: {response.status_code}")
                 return None
             
-            # Create deck data
+            deck_data = response.json()
+            
+            # Extract deck information
+            deck_name = name or deck_data.get('name', 'Imported Deck')
+            format_name = deck_data.get('format', 'standard').lower()
+            
+            # Extract main deck cards
+            main_deck = []
+            for card_name, card_info in deck_data.get('mainboard', {}).items():
+                main_deck.append({
+                    'name': card_name,
+                    'quantity': card_info.get('quantity', 1)
+                })
+            
+            # Extract sideboard cards
+            sideboard = []
+            for card_name, card_info in deck_data.get('sideboard', {}).items():
+                sideboard.append({
+                    'name': card_name,
+                    'quantity': card_info.get('quantity', 1)
+                })
+            
+            # Create deck object
             deck_data = {
+                'name': deck_name,
+                'format': format_name,
                 'player_id': player_id,
                 'tournament_id': tournament_id,
-                'format': format_name,
                 'main_deck': main_deck,
                 'sideboard': sideboard,
-                'name': deck_name or 'Imported Deck',
                 'validation_status': 'pending',
-                'validation_errors': []
+                'created_at': datetime.utcnow().isoformat(),
+                'updated_at': datetime.utcnow().isoformat()
             }
             
-            # Create deck
-            deck_id = self.create_deck(deck_data)
-            
-            # Validate deck
-            if deck_id:
-                self.validate_deck(deck_id, format_name)
-            
-            return deck_id
+            # Insert deck
+            result = self.db.decks.insert_one(deck_data)
+            return str(result.inserted_id)
+        
         except Exception as e:
-            print(f"Error importing deck: {e}")
+            print(f"Error importing deck from Moxfield: {e}")
             return None
     
     def validate_deck(self, deck_id, format_name):
