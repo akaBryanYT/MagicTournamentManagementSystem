@@ -119,7 +119,13 @@ The project is organized into two main directories:
      ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO tms_user;
      ```
 
-7. **Update your `.env` file**
+7. **Additional pgAdmin 4 Configuration**
+   - In pgAdmin 4, ensure the server is running by checking the server status
+   - If the server isn't running, right-click on the PostgreSQL server in the browser tree and select "Connect Server"
+   - If you encounter connection errors, check that the PostgreSQL service is running in Windows Services
+   - To configure automatic startup, go to Windows Services, find postgresql-x64-[version], right-click and select "Properties", then set "Startup type" to "Automatic"
+
+8. **Update your `.env` file**
    ```
    POSTGRES_HOST=localhost
    POSTGRES_PORT=5432
@@ -215,6 +221,25 @@ The project is organized into two main directories:
    POSTGRES_PASSWORD=your_password
    ```
 
+7. **Additional Linux Configuration**
+   - Check PostgreSQL log for any errors:
+     ```bash
+     sudo journalctl -u postgresql
+     ```
+   - Configure PostgreSQL to listen on all interfaces if needed:
+     ```bash
+     sudo nano /var/lib/pgsql/data/postgresql.conf
+     ```
+     Change the `listen_addresses` line to:
+     ```
+     listen_addresses = '*'
+     ```
+   - Ensure the firewall allows PostgreSQL traffic:
+     ```bash
+     sudo firewall-cmd --permanent --add-service=postgresql
+     sudo firewall-cmd --reload
+     ```
+
 ### MongoDB Setup on Windows
 
 1. **Download MongoDB Community Server**
@@ -258,7 +283,20 @@ The project is organized into two main directories:
    exit
    ```
 
-5. **Update your `.env` file**
+5. **Enable authentication (optional but recommended)**
+   - Create or edit the MongoDB configuration file:
+     - Navigate to `C:\Program Files\MongoDB\Server\X.X\bin`
+     - Create a file named `mongod.cfg` (if it doesn't exist)
+     - Add the following content:
+       ```yaml
+       security:
+         authorization: enabled
+       ```
+   - Restart the MongoDB service:
+     - Open Services (services.msc)
+     - Find MongoDB service, right-click and select "Restart"
+
+6. **Update your `.env` file**
    ```
    DB_TYPE=mongodb
    MONGO_HOST=localhost
@@ -343,7 +381,13 @@ The project is organized into two main directories:
    sudo systemctl restart mongod
    ```
 
-8. **Update your `.env` file**
+8. **Configure firewall (if needed)**
+   ```bash
+   sudo firewall-cmd --permanent --add-port=27017/tcp
+   sudo firewall-cmd --reload
+   ```
+
+9. **Update your `.env` file**
    ```
    DB_TYPE=mongodb
    MONGO_HOST=localhost
@@ -413,6 +457,11 @@ Before running the application, you need to ensure your database service is runn
    ```
    Replace `[version]` with your installed PostgreSQL version
 
+3. **Using pgAdmin 4**
+   - Open pgAdmin 4
+   - If the server appears with a red "X", right-click on it and select "Connect Server"
+   - Enter your master password when prompted
+
 #### Fedora/Linux
 ```bash
 # Start the service
@@ -450,19 +499,21 @@ After starting your database service, verify you can connect:
 
 #### PostgreSQL
 ```bash
-# Windows or Linux
-psql -U postgres -d tournament_management
+# Windows
+psql -U tms_user -d tournament_management -h localhost
+
+# Linux
+psql -U tms_user -d tournament_management -h localhost
 
 # Enter your password when prompted
-# You should see a prompt like: tournament_management=#
+# You should see a prompt like: tournament_management=>
 ```
 
 #### MongoDB
 ```bash
 # Windows or Linux
-mongosh "mongodb://localhost:27017/tournament_management" --username tms_user
+mongosh "mongodb://localhost:27017/tournament_management" --username tms_user --password your_password
 
-# Enter your password when prompted
 # You should see a prompt like: tournament_management>
 ```
 
@@ -594,12 +645,20 @@ For detailed API documentation, check the route files in the `backend/app/routes
 2. **Authentication failures**
    - Double-check username and password in `.env` file
    - Verify the user has appropriate privileges
+   - In pgAdmin, check if the user exists and has the correct permissions
+   - Ensure you're using the correct authentication method (md5 or scram-sha-256)
 
 3. **Database doesn't exist**
    - Create the database manually:
      ```bash
      sudo -u postgres createdb tournament_management
      ```
+   - In pgAdmin, right-click on Databases and select "Create" > "Database..."
+
+4. **pgAdmin issues**
+   - If pgAdmin shows "server not found", ensure PostgreSQL service is running
+   - If pgAdmin asks for a master password repeatedly, reset it by deleting the pgAdmin data directory (usually in `%APPDATA%\pgAdmin` on Windows)
+   - If server connection fails, check the server properties and ensure the host, port, and credentials are correct
 
 #### MongoDB
 
@@ -609,11 +668,15 @@ For detailed API documentation, check the route files in the `backend/app/routes
      ```bash
      # Linux
      sudo cat /var/log/mongodb/mongod.log
+     # Windows
+     type "C:\Program Files\MongoDB\Server\X.X\log\mongod.log"
      ```
 
 2. **Authentication failures**
    - Verify the authentication database is correct
    - Check user credentials in your connection string
+   - Ensure authentication is enabled in mongod.conf
+   - Try connecting with the mongo shell to isolate authentication issues
 
 ### Backend Issues
 
@@ -624,6 +687,13 @@ For detailed API documentation, check the route files in the `backend/app/routes
 2. **Environment configuration**
    - Verify `.env` file exists and has correct database settings
    - Check Flask settings and secret key
+   - Ensure the correct database type is selected in `.env`
+
+3. **Database initialization errors**
+   - Check database connection first
+   - Look for error messages in console output
+   - Try running init_db.py with --verbose flag (if available)
+   - Check database permissions
 
 ### Frontend Issues
 
@@ -636,6 +706,13 @@ For detailed API documentation, check the route files in the `backend/app/routes
    - Check if backend server is running
    - Verify API URL in `.env` file
    - Check browser console for CORS errors
+   - Ensure your backend is configured to allow CORS requests
+
+3. **Build errors**
+   - Update Node.js to the latest LTS version
+   - Check for TypeScript errors in the console
+   - Try using an older version of Node.js if necessary
+   - Check for conflicting dependencies
 
 ## Contributing
 
