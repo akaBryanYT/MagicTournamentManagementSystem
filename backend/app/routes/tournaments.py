@@ -86,6 +86,14 @@ def drop_player(tournament_id, player_id):
     if success:
         return jsonify({'message': 'Player dropped successfully'}), 200
     return jsonify({'error': 'Failed to drop player'}), 404
+    
+@bp.route('/<tournament_id>/players/<player_id>/reinstate', methods=['POST'])
+def reinstate_player(tournament_id, player_id):
+    """Reinstate a dropped player to a tournament."""
+    success = tournament_service.reinstatePlayer(tournament_id, player_id)
+    if success:
+        return jsonify({'message': 'Player reinstated successfully'}), 200
+    return jsonify({'error': 'Failed to reinstate player'}), 404
 
 @bp.route('/<tournament_id>/rounds', methods=['GET'])
 def get_tournament_rounds(tournament_id):
