@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Badge, Spinner, Form, Row, Col } from 'react-bootstrap';
 import { Link, useNavigate } from 'react-router-dom';
+import PlayerService from '../../services/playerService';
 
 interface PlayerListProps {}
 
@@ -26,8 +27,8 @@ const PlayerList: React.FC<PlayerListProps> = () => {
       try {
         setLoading(true);
         const response = await PlayerService.getAllPlayers();
-        setPlayers(response.players || []);
-        setFilteredPlayers(response.players || []);
+        setPlayers((response.players || []) as unknown as Player[]);
+        setFilteredPlayers((response.players || []) as unknown as Player[]);
       } catch (err) {
         console.error("Error fetching players:", err);
       } finally {
@@ -165,6 +166,7 @@ const PlayerList: React.FC<PlayerListProps> = () => {
                         <Button 
                           variant={player.active ? "warning" : "success"} 
                           size="sm"
+                          onClick={() => handleTogglePlayerStatus(player.id, player.active)}
                         >
                           {player.active ? 'Deactivate' : 'Activate'}
                         </Button>

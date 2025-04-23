@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Button, Badge, Spinner, Form, Row, Col } from 'react-bootstrap';
+import { Card, Table, Button, Badge, Spinner, Form, Row, Col, Alert } from 'react-bootstrap';
 import { Link, useNavigate } from 'react-router-dom';
+import DeckService from '../../services/deckService';
 
 interface DeckListProps {}
 
@@ -20,28 +21,27 @@ const DeckList: React.FC<DeckListProps> = () => {
   const navigate = useNavigate();
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [formatFilter, setFormatFilter] = useState<string>('all');
   const [filteredDecks, setFilteredDecks] = useState<Deck[]>([]);
 
   useEffect(() => {
-    // In a real implementation, this would be an API call
-    // For now, we'll use mock data
-    const mockDecks: Deck[] = Array.from({ length: 15 }, (_, i) => ({
-      id: `d${i + 1}`,
-      name: `Deck ${i + 1}`,
-      format: i % 5 === 0 ? 'Standard' : i % 5 === 1 ? 'Modern' : i % 5 === 2 ? 'Commander' : i % 5 === 3 ? 'Draft' : 'Sealed',
-      player_id: `p${(i % 8) + 1}`,
-      player_name: `Player ${(i % 8) + 1}`,
-      tournament_id: `t${(i % 4) + 1}`,
-      tournament_name: `Tournament ${(i % 4) + 1}`,
-      validation_status: i % 3 === 0 ? 'valid' : i % 3 === 1 ? 'invalid' : 'pending',
-      created_at: new Date(Date.now() - i * 86400000).toISOString()
-    }));
-
-    setDecks(mockDecks);
-    setFilteredDecks(mockDecks);
-    setLoading(false);
+    const fetchDecks = async () => {
+      try {
+        setLoading(true);
+        const response = await DeckService.getAllDecks();
+        setDecks(response?.decks || []);
+        setFilteredDecks(response?.decks || []);
+      } catch (err: any) {
+        console.error("Error fetching decks:", err);
+        setError(err.message || "Failed to load decks");
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchDecks();
   }, []);
 
   useEffect(() => {
@@ -85,6 +85,20 @@ const DeckList: React.FC<DeckListProps> = () => {
     }
   };
 
+  const handleExportDeck = async (deckId: string) => {
+    try {
+      const result = await DeckService.exportDeckToText(deckId);
+      
+      // Copy to clipboard
+      navigator.clipboard.writeText(result.deck_text)
+        .then(() => alert('Deck list copied to clipboard!'))
+        .catch(() => alert('Failed to copy deck list to clipboard'));
+    } catch (err) {
+      console.error('Error exporting deck:', err);
+      alert('Failed to export deck');
+    }
+  };
+
   if (loading) {
     return (
       <div className="text-center my-5">
@@ -103,6 +117,12 @@ const DeckList: React.FC<DeckListProps> = () => {
           Register New Deck
         </Link>
       </div>
+
+      {error && (
+        <Alert variant="danger" className="mb-4">
+          {error}
+        </Alert>
+      )}
 
       <Card className="mb-4">
         <Card.Body>
@@ -174,7 +194,11 @@ const DeckList: React.FC<DeckListProps> = () => {
                         <Link to={`/decks/${deck.id}`} className="btn btn-sm btn-primary">
                           View
                         </Link>
-                        <Button variant="sm btn-outline-secondary">
+                        <Button 
+                          variant="outline-secondary" 
+                          size="sm"
+                          onClick={() => handleExportDeck(deck.id)}
+                        >
                           Export
                         </Button>
                       </div>

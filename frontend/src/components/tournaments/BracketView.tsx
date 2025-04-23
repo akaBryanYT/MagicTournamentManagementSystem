@@ -1,8 +1,8 @@
-// Update BracketView.tsx
 import React, { useState, useEffect } from 'react';
 import { Card, Spinner, Alert } from 'react-bootstrap';
 import { useParams } from 'react-router-dom';
 import TournamentService from '../../services/tournamentService';
+import { Match } from '../../types';  // Import the Match type
 
 interface BracketViewProps {
   tournamentId: string;
@@ -10,7 +10,7 @@ interface BracketViewProps {
 }
 
 const BracketView: React.FC<BracketViewProps> = ({ tournamentId, bracketType }) => {
-  const [matches, setMatches] = useState<any[]>([]);
+  const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,12 +24,13 @@ const BracketView: React.FC<BracketViewProps> = ({ tournamentId, bracketType }) 
         const allMatches = await TournamentService.getTournamentMatches(tournamentId);
         
         // Filter matches by bracket type
-        const bracketMatches = allMatches.filter(match => match.bracket === bracketType);
+        const bracketMatches = allMatches.filter((match: Match) => match.bracket === bracketType);
         
         // Sort by round and bracket position
-        bracketMatches.sort((a, b) => {
+        bracketMatches.sort((a: Match, b: Match) => {
           if (a.round !== b.round) return a.round - b.round;
-          return a.bracket_position - b.bracket_position;
+          // Use nullish coalescing to handle undefined values
+          return (a.bracket_position ?? 0) - (b.bracket_position ?? 0);
         });
         
         setMatches(bracketMatches);
@@ -44,6 +45,7 @@ const BracketView: React.FC<BracketViewProps> = ({ tournamentId, bracketType }) 
     fetchBracketData();
   }, [tournamentId, bracketType]);
 
+  // Rest of the component remains the same
   if (loading) {
     return <Spinner animation="border" />;
   }
@@ -67,7 +69,7 @@ const BracketView: React.FC<BracketViewProps> = ({ tournamentId, bracketType }) 
         <div key={round} className="bracket-round">
           <h5>Round {round}</h5>
           <div className="bracket-matches">
-            {roundsMap[round].map((match: any) => (
+            {roundsMap[round].map((match: Match) => (
               <Card key={match.id} className="bracket-match mb-2">
                 <Card.Body className="p-2">
                   <div className="d-flex justify-content-between align-items-center mb-1">

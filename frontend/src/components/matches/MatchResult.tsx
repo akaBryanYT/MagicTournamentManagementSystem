@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Button, Badge, Spinner, Form, Row, Col } from 'react-bootstrap';
+import { Card, Table, Button, Badge, Spinner, Form, Row, Col, Alert } from 'react-bootstrap';
 import { Link, useParams } from 'react-router-dom';
-
-// Add missing Alert import
-import { Alert } from 'react-bootstrap';
+import MatchService from '../../services/matchService';
 
 interface MatchResultProps {}
 
-interface Match {
+interface MatchDetails {
   id: string;
   tournament_id: string;
   tournament_name: string;
@@ -26,7 +24,7 @@ interface Match {
 
 const MatchResult: React.FC<MatchResultProps> = () => {
   const { id } = useParams<{ id: string }>();
-  const [match, setMatch] = useState<Match | null>(null);
+  const [match, setMatch] = useState<MatchDetails  | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -43,7 +41,7 @@ const MatchResult: React.FC<MatchResultProps> = () => {
       try {
         setLoading(true);
         const matchData = await MatchService.getMatchById(id!);
-        setMatch(matchData);
+        setMatch(matchData as unknown as MatchDetails);
         setFormData({
           player1_wins: matchData.player1_wins,
           player2_wins: matchData.player2_wins,
@@ -96,7 +94,7 @@ const MatchResult: React.FC<MatchResultProps> = () => {
         setSuccess(true);
         // Refresh match data
         const updatedMatch = await MatchService.getMatchById(id!);
-        setMatch(updatedMatch);
+        setMatch(updatedMatch as unknown as MatchDetails);
       } else {
         setError('Failed to submit match result');
       }
@@ -118,7 +116,7 @@ const MatchResult: React.FC<MatchResultProps> = () => {
         setSuccess(true);
         // Refresh match data
         const updatedMatch = await MatchService.getMatchById(id!);
-        setMatch(updatedMatch);
+        setMatch(updatedMatch as unknown as MatchDetails);
       } else {
         setError('Failed to submit intentional draw');
       }

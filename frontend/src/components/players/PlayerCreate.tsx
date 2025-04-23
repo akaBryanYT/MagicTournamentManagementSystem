@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Card, Form, Button, Row, Col, Alert } from 'react-bootstrap';
+import { Card, Form, Button, Row, Col, Alert, Spinner } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
+import PlayerService from '../../services/playerService';
 
 interface PlayerCreateProps {}
 
@@ -14,6 +15,7 @@ const PlayerCreate: React.FC<PlayerCreateProps> = () => {
   });
   const [validated, setValidated] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -23,7 +25,7 @@ const PlayerCreate: React.FC<PlayerCreateProps> = () => {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
     
@@ -33,13 +35,26 @@ const PlayerCreate: React.FC<PlayerCreateProps> = () => {
       return;
     }
     
-    // In a real implementation, this would be an API call
-    console.log('Submitting player data:', formData);
-    
-    // Simulate successful creation
-    setTimeout(() => {
-      navigate('/players');
-    }, 1000);
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Make actual API call to create player
+      const result = await PlayerService.createPlayer({
+        ...formData,
+        active: true
+      });
+      
+      if (result && result.id) {
+        navigate('/players');
+      } else {
+        setError('Failed to create player. Please try again.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'An error occurred while creating the player');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -111,8 +126,15 @@ const PlayerCreate: React.FC<PlayerCreateProps> = () => {
               <Button variant="secondary" onClick={() => navigate('/players')}>
                 Cancel
               </Button>
-              <Button variant="primary" type="submit">
-                Register Player
+              <Button variant="primary" type="submit" disabled={loading}>
+                {loading ? (
+                  <>
+                    <Spinner as="span" animation="border" size="sm" className="me-2" />
+                    Registering...
+                  </>
+                ) : (
+                  'Register Player'
+                )}
               </Button>
             </div>
           </Form>

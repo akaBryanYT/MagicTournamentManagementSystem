@@ -1,6 +1,5 @@
 """
 PostgreSQL schema for the Tournament Management System.
-This module defines the PostgreSQL schema for the TMS application.
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Table, Text, JSON
@@ -8,7 +7,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
 import os
-from config.database_config import DatabaseConfig
+from dotenv import load_dotenv
 
 Base = declarative_base()
 
@@ -46,6 +45,7 @@ class Tournament(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)
     format = Column(String(50), nullable=False)
+    structure = Column(String(50), default='swiss')
     date = Column(DateTime, nullable=False)
     location = Column(String(100))
     status = Column(String(20), default='planned')
@@ -56,6 +56,7 @@ class Tournament(Base):
     tiebreakers = Column(JSON)
     time_limits = Column(JSON)
     format_config = Column(JSON)
+    structure_config = Column(JSON)
     
     # Relationships
     players = relationship("Player", secondary=tournament_players, back_populates="tournaments")
@@ -81,6 +82,10 @@ class Match(Base):
     start_time = Column(DateTime)
     end_time = Column(DateTime)
     notes = Column(Text)
+    bracket = Column(String(20))
+    bracket_position = Column(Integer)
+    winners_next_match = Column(Integer)
+    losers_next_match = Column(Integer)
     
     # Relationships
     tournament = relationship("Tournament", back_populates="matches")
@@ -120,6 +125,8 @@ class Card(Base):
     colors = Column(JSON)
     color_identity = Column(JSON)
     legalities = Column(JSON)
+    rarity = Column(String(20))
+    image_uri = Column(String(255))
     
     # Relationships
     deck_cards = relationship("DeckCard", back_populates="card")
@@ -159,9 +166,20 @@ class Standing(Base):
     tournament = relationship("Tournament", back_populates="standings")
     player = relationship("Player", back_populates="standings")
 
+def get_postgresql_uri():
+    """Get PostgreSQL URI from environment variables."""
+    load_dotenv()
+    pg_host = os.getenv('POSTGRES_HOST', 'localhost')
+    pg_port = os.getenv('POSTGRES_PORT', '5432')
+    pg_db = os.getenv('POSTGRES_DB_NAME', 'tournament_management')
+    pg_user = os.getenv('POSTGRES_USERNAME', 'postgres')
+    pg_password = os.getenv('POSTGRES_PASSWORD', 'postgres')
+    
+    return f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_db}"
+
 def initialize_database():
     """Initialize PostgreSQL database with tables."""
-    engine = create_engine(DatabaseConfig.get_postgresql_uri())
+    engine = create_engine(get_postgresql_uri())
     Base.metadata.create_all(engine)
     return engine
 

@@ -186,6 +186,8 @@ const TournamentCreate: React.FC = () => {
         location: formData.location,
         rounds: formData.rounds === '' ? 0 : parseInt(formData.rounds),
         time_limit: parseInt(formData.timeLimit),
+        status: 'planned',
+        current_round: 0,
         structure_config: {
           allow_intentional_draws: formData.structureConfig.allowIntentionalDraws,
           use_seeds_for_byes: formData.structureConfig.useSeeds,
@@ -205,7 +207,7 @@ const TournamentCreate: React.FC = () => {
         }
       };
       
-      const result = await TournamentService.createTournament(tournamentData);
+      const result = await TournamentService.createTournament(tournamentData as any);
       
       if (result && result.id) {
         navigate(`/tournaments/${result.id}`);
@@ -462,7 +464,7 @@ const TournamentCreate: React.FC = () => {
             <Form.Label>Point System</Form.Label>
             <Form.Select
               name="formatConfig.pointSystem"
-              value={formData.formatConfig.pointSystem || 'standard'}
+              value={(formData.formatConfig as any).pointSystem || 'standard'}
               onChange={handleChange}
             >
               <option value="standard">Standard (Win/Loss)</option>

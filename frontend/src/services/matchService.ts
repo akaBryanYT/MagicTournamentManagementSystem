@@ -2,7 +2,7 @@ import apiClient from './apiClient';
 
 // Define interfaces
 export interface Match {
-  id?: string;
+  id: string;
   tournament_id: string;
   round: number;
   table_number: number;

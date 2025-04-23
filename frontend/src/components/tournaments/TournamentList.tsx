@@ -26,7 +26,7 @@ const TournamentList: React.FC<TournamentListProps> = () => {
       try {
         setLoading(true);
         const response = await TournamentService.getAllTournaments();
-        setTournaments(response.tournaments || []);
+        setTournaments((response.tournaments || []) as unknown as Tournament[]);
       } catch (err) {
         console.error("Error fetching tournaments:", err);
       } finally {

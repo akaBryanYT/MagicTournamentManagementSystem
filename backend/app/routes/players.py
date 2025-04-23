@@ -4,7 +4,6 @@ Player API routes for the Tournament Management System.
 
 from flask import Blueprint, request, jsonify
 from app.services.player_service import PlayerService
-from app.models.database import Player
 
 bp = Blueprint('players', __name__, url_prefix='/api/players')
 player_service = PlayerService()
@@ -26,19 +25,26 @@ def get_player(player_id):
 @bp.route('', methods=['POST'])
 def create_player():
     """Create a new player."""
-    data = request.get_json()
-    
-    # Validate required fields
-    required_fields = ['name', 'email']
-    for field in required_fields:
-        if field not in data:
-            return jsonify({'error': f'Missing required field: {field}'}), 400
-    
-    # Create player
-    player_id = player_service.create_player(data)
-    if player_id:
-        return jsonify({'id': player_id, 'message': 'Player created successfully'}), 201
-    return jsonify({'error': 'Failed to create player'}), 500
+    try:
+        data = request.get_json()
+        print(f"Received player data: {data}")
+        
+        # Validate required fields
+        required_fields = ['name', 'email']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Create player
+        player_id = player_service.create_player(data)
+        if player_id:
+            return jsonify({'id': player_id, 'message': 'Player created successfully'}), 201
+        return jsonify({'error': 'Failed to create player'}), 500
+    except Exception as e:
+        print(f"Error in create_player route: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @bp.route('/<player_id>', methods=['PUT'])
 def update_player(player_id):

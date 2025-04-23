@@ -9,8 +9,13 @@ export interface Deck {
   tournament_id: string;
   validation_status: string;
   validation_errors?: string[];
-  main_deck: {name: string, quantity: number}[];
-  sideboard: {name: string, quantity: number}[];
+  main_deck: CardItem[];
+  sideboard: CardItem[];
+}
+
+export interface CardItem {
+  name: string;
+  quantity: number;
 }
 
 export interface DeckListResponse {
@@ -24,40 +29,75 @@ export interface DeckListResponse {
 const DeckService = {
   // Get all decks with pagination
   getAllDecks: async (page = 1, limit = 20, format = '', player_id = '') => {
-    const response = await apiClient.get('/decks', {
-      params: { page, limit, format, player_id }
-    });
-    return response.data as DeckListResponse;
+    try {
+      const response = await apiClient.get('/decks', {
+        params: { page, limit, format, player_id }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching decks:', error);
+      return { decks: [], total: 0, page, limit };
+    }
   },
 
   // Get deck by ID
   getDeckById: async (id: string) => {
-    const response = await apiClient.get(`/decks/${id}`);
-    return response.data as Deck;
+    try {
+      const response = await apiClient.get(`/decks/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching deck:', error);
+      throw error;
+    }
   },
 
   // Create new deck
-  createDeck: async (deckData: Deck) => {
-    const response = await apiClient.post('/decks', deckData);
-    return response.data;
+  createDeck: async (deckData: Partial<Deck>) => {
+    try {
+      // Make sure validation_status is included
+      const completeData = {
+        ...deckData,
+        validation_status: deckData.validation_status || 'pending'
+      };
+      const response = await apiClient.post('/decks', completeData);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating deck:', error);
+      throw error;
+    }
   },
 
   // Update deck
   updateDeck: async (id: string, deckData: Partial<Deck>) => {
-    const response = await apiClient.put(`/decks/${id}`, deckData);
-    return response.data;
+    try {
+      const response = await apiClient.put(`/decks/${id}`, deckData);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating deck:', error);
+      throw error;
+    }
   },
 
   // Delete deck
   deleteDeck: async (id: string) => {
-    const response = await apiClient.delete(`/decks/${id}`);
-    return response.data;
+    try {
+      const response = await apiClient.delete(`/decks/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting deck:', error);
+      throw error;
+    }
   },
 
   // Validate deck
   validateDeck: async (id: string) => {
-    const response = await apiClient.post(`/decks/${id}/validate`);
-    return response.data;
+    try {
+      const response = await apiClient.post(`/decks/${id}/validate`);
+      return response.data;
+    } catch (error) {
+      console.error('Error validating deck:', error);
+      throw error;
+    }
   },
     
   // Import deck from Moxfield URL
@@ -95,20 +135,35 @@ const DeckService = {
 
   // Export deck to text
   exportDeckToText: async (id: string) => {
-    const response = await apiClient.get(`/decks/${id}/export`);
-    return response.data;
+    try {
+      const response = await apiClient.get(`/decks/${id}/export`);
+      return response.data;
+    } catch (error) {
+      console.error('Error exporting deck:', error);
+      throw error;
+    }
   },
 
   // Get player decks
   getPlayerDecks: async (player_id: string) => {
-    const response = await apiClient.get(`/players/${player_id}/decks`);
-    return response.data;
+    try {
+      const response = await apiClient.get(`/players/${player_id}/decks`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching player decks:', error);
+      return [];
+    }
   },
 
   // Get tournament decks
   getTournamentDecks: async (tournament_id: string) => {
-    const response = await apiClient.get(`/tournaments/${tournament_id}/decks`);
-    return response.data;
+    try {
+      const response = await apiClient.get(`/tournaments/${tournament_id}/decks`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching tournament decks:', error);
+      return [];
+    }
   }
 };
 

@@ -6,6 +6,8 @@ from datetime import datetime
 from bson.objectid import ObjectId
 from app.models.database import DatabaseConfig
 from app.services.swiss_pairing import SwissPairingService
+from sqlalchemy import text
+import json
 
 class TournamentService:
     """Service for tournament operations."""
@@ -15,59 +17,123 @@ class TournamentService:
         self.db_config = DatabaseConfig()
         self.db_config.connect()
         self.db = self.db_config.db
+        self.db_type = self.db_config.db_type
         self.swiss_pairing = SwissPairingService()
-    
+
     def get_all_tournaments(self, page=1, limit=20, status=None, sort=None):
         """Get all tournaments with optional filtering."""
         try:
-            # Calculate skip for pagination
-            skip = (page - 1) * limit
-            
-            # Build filter
-            filter_query = {}
-            if status:
-                filter_query['status'] = status
-            
-            # Build sort
-            sort_query = []
-            if sort == 'date':
-                sort_query.append(('date', -1))  # Sort by date descending
-            else:
-                sort_query.append(('created_at', -1))  # Default sort by creation time
-            
-            # Get total count
-            total = self.db.tournaments.count_documents(filter_query)
-            
-            # Execute query
-            tournaments = list(self.db.tournaments.find(
-                filter_query,
-                {
-                    '_id': 1, 
-                    'name': 1, 
-                    'format': 1,
-                    'structure': 1,
-                    'date': 1, 
-                    'status': 1,
-                    'rounds': 1,
-                    'current_round': 1,
-                    'players': 1
+            if self.db_type == 'mongodb':
+                # Calculate skip for pagination
+                skip = (page - 1) * limit
+                
+                # Build filter
+                filter_query = {}
+                if status:
+                    filter_query['status'] = status
+                
+                # Build sort
+                sort_query = []
+                if sort == 'date':
+                    sort_query.append(('date', -1))  # Sort by date descending
+                else:
+                    sort_query.append(('created_at', -1))  # Default sort by creation time
+                
+                # Get total count
+                total = self.db.tournaments.count_documents(filter_query)
+                
+                # Execute query
+                tournaments = list(self.db.tournaments.find(
+                    filter_query,
+                    {
+                        '_id': 1, 
+                        'name': 1, 
+                        'format': 1,
+                        'structure': 1,
+                        'date': 1, 
+                        'status': 1,
+                        'rounds': 1,
+                        'current_round': 1,
+                        'players': 1
+                    }
+                ).sort(sort_query).skip(skip).limit(limit))
+                
+                # Process results
+                for tournament in tournaments:
+                    tournament['id'] = str(tournament.pop('_id'))
+                    tournament['player_count'] = len(tournament.get('players', []))
+                    tournament.pop('players', None)  # Remove player IDs from response
+                
+                return {
+                    'tournaments': tournaments,
+                    'total': total,
+                    'page': page,
+                    'limit': limit
                 }
-            ).sort(sort_query).skip(skip).limit(limit))
-            
-            # Process results
-            for tournament in tournaments:
-                tournament['id'] = str(tournament.pop('_id'))
-                tournament['player_count'] = len(tournament.get('players', []))
-                tournament.pop('players', None)  # Remove player IDs from response
-            
-            return {
-                'tournaments': tournaments,
-                'total': total,
-                'page': page,
-                'limit': limit
-            }
+            else:
+                # PostgreSQL implementation
+                # Build where clause
+                where_clause = "1=1"
+                params = {
+                    'page': page,
+                    'limit': limit,
+                    'offset': (page - 1) * limit
+                }
+                
+                if status:
+                    where_clause += " AND status = :status"
+                    params['status'] = status
+                
+                # Build order by clause
+                order_by = "created_at DESC"
+                if sort == 'date':
+                    order_by = "date DESC"
+                
+                try:
+                    # Get total count
+                    count_result = self.db.execute(text(f"""
+                        SELECT COUNT(*) FROM tournaments
+                        WHERE {where_clause}
+                    """), params)
+                    total = count_result.scalar()
+                    
+                    # Execute query
+                    result = self.db.execute(text(f"""
+                        SELECT t.id, t.name, t.format, 
+                               COALESCE(t.structure, 'swiss') as structure, 
+                               t.date, t.status, t.rounds, t.current_round,
+                               (SELECT COUNT(*) FROM tournament_players tp WHERE tp.tournament_id = t.id) AS player_count
+                        FROM tournaments t
+                        WHERE {where_clause}
+                        ORDER BY {order_by}
+                        LIMIT :limit OFFSET :offset
+                    """), params)
+                    
+                    # Process results
+                    tournaments = []
+                    for row in result.mappings():
+                        tournament = dict(row)
+                        tournament['id'] = str(tournament['id'])
+                        tournament['date'] = tournament['date'].isoformat() if tournament['date'] else None
+                        tournaments.append(tournament)
+                    
+                    return {
+                        'tournaments': tournaments,
+                        'total': total,
+                        'page': page,
+                        'limit': limit
+                    }
+                except Exception as e:
+                    print(f"Error in database query: {e}")
+                    self.db.rollback()  # Make sure to rollback transaction on error
+                    raise
         except Exception as e:
             print(f"Error getting tournaments: {e}")
+            if self.db_type == 'postgresql':
+                try:
+                    self.db.rollback()  # Extra safety to ensure rollback
+                except:
+                    pass  # Ignore if rollback fails
             return {
                 'tournaments': [],
                 'total': 0,
@@ -78,21 +144,64 @@ class TournamentService:
     def get_tournament_by_id(self, tournament_id):
         """Get tournament by ID."""
         try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if tournament:
-                # Convert ObjectId to string
-                tournament['id'] = str(tournament.pop('_id'))
+            if self.db_type == 'mongodb':
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
+                if tournament:
+                    # Convert ObjectId to string
+                    tournament['id'] = str(tournament.pop('_id'))
+                    
+                    # Convert player IDs to strings
+                    if 'players' in tournament:
+                        tournament['players'] = [str(p) for p in tournament['players']]
+                    
+                    # Convert match IDs to strings
+                    if 'matches' in tournament:
+                        tournament['matches'] = [str(m) for m in tournament['matches']]
+                    
+                    return tournament
+                return None
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    SELECT t.*,
+                           (SELECT array_agg(player_id) FROM tournament_players WHERE tournament_id = t.id) AS players,
+                           (SELECT array_agg(id) FROM matches WHERE tournament_id = t.id) AS matches
+                    FROM tournaments t
+                    WHERE t.id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
                 
-                # Convert player IDs to strings
-                if 'players' in tournament:
-                    tournament['players'] = [str(p) for p in tournament['players']]
-                
-                # Convert match IDs to strings
-                if 'matches' in tournament:
-                    tournament['matches'] = [str(m) for m in tournament['matches']]
-                
-                return tournament
-            return None
+                row = result.mappings().first()
+                if row:
+                    tournament = dict(row)
+                    tournament['id'] = str(tournament['id'])
+                    tournament['date'] = tournament['date'].isoformat() if tournament['date'] else None
+                    tournament['created_at'] = tournament['created_at'].isoformat() if tournament['created_at'] else None
+                    tournament['updated_at'] = tournament['updated_at'].isoformat() if tournament['updated_at'] else None
+                    
+                    # Convert JSON fields
+                    if tournament['tiebreakers']:
+                        tournament['tiebreakers'] = tournament['tiebreakers'] 
+                    if tournament['time_limits']:
+                        tournament['time_limits'] = tournament['time_limits']
+                    if tournament['format_config']:
+                        tournament['format_config'] = tournament['format_config']
+                    if tournament['structure_config']:
+                        tournament['structure_config'] = tournament['structure_config']
+                    
+                    # Convert player IDs to strings
+                    if tournament['players']:
+                        tournament['players'] = [str(p) for p in tournament['players']]
+                    else:
+                        tournament['players'] = []
+                    
+                    # Convert match IDs to strings
+                    if tournament['matches']:
+                        tournament['matches'] = [str(m) for m in tournament['matches']]
+                    else:
+                        tournament['matches'] = []
+                    
+                    return tournament
+                return None
         except Exception as e:
             print(f"Error getting tournament: {e}")
             return None
@@ -100,137 +209,300 @@ class TournamentService:
     def create_tournament(self, tournament_data):
         """Create a new tournament."""
         try:
-            # Add timestamps
-            tournament_data['created_at'] = datetime.utcnow().isoformat()
-            tournament_data['updated_at'] = datetime.utcnow().isoformat()
-            tournament_data['status'] = 'planned'
-            tournament_data['current_round'] = 0
-            tournament_data['players'] = []
-            tournament_data['matches'] = []
-            
-            # Set default rounds based on format
-            if 'rounds' not in tournament_data:
-                tournament_data['rounds'] = 0  # Will be calculated based on player count
-            
-            # Set default structure-specific configuration
-            if 'structure_config' not in tournament_data:
-                structure_type = tournament_data.get('structure', '').lower()
-                if structure_type == 'swiss':
-                    tournament_data['structure_config'] = {
-                        'allow_intentional_draws': True,
-                        'allow_byes': True,
-                        'use_seeds_for_byes': False
-                    }
-                elif structure_type == 'single_elimination':
-                    tournament_data['structure_config'] = {
-                        'seeded': True,
-                        'third_place_match': True
-                    }
-                elif structure_type == 'double_elimination':
-                    tournament_data['structure_config'] = {
-                        'seeded': True,
-                        'grand_finals_modifier': 'none'  # 'none', 'reset', or 'advantage'
-                    }
-            
-            # Set format-specific configuration (MTG format)
-            if 'format_config' not in tournament_data:
+            if self.db_type == 'mongodb':
+                # Add timestamps
+                tournament_data['created_at'] = datetime.utcnow().isoformat()
+                tournament_data['updated_at'] = datetime.utcnow().isoformat()
+                tournament_data['status'] = 'planned'
+                tournament_data['current_round'] = 0
+                tournament_data['players'] = []
+                tournament_data['matches'] = []
+                
+                # Set default rounds based on format
+                if 'rounds' not in tournament_data:
+                    tournament_data['rounds'] = 0  # Will be calculated based on player count
+                
+                # Set default structure-specific configuration
+                if 'structure_config' not in tournament_data:
+                    structure_type = tournament_data.get('structure', '').lower()
+                    if structure_type == 'swiss':
+                        tournament_data['structure_config'] = {
+                            'allow_intentional_draws': True,
+                            'allow_byes': True,
+                            'use_seeds_for_byes': False
+                        }
+                    elif structure_type == 'single_elimination':
+                        tournament_data['structure_config'] = {
+                            'seeded': True,
+                            'third_place_match': True
+                        }
+                    elif structure_type == 'double_elimination':
+                        tournament_data['structure_config'] = {
+                            'seeded': True,
+                            'grand_finals_modifier': 'none'  # 'none', 'reset', or 'advantage'
+                        }
+                
+                # Set format-specific configuration (MTG format)
+                if 'format_config' not in tournament_data:
+                    game_format = tournament_data.get('format', '').lower()
+                    if game_format == 'draft':
+                        tournament_data['format_config'] = {
+                            'pod_size': 8,
+                            'packs_per_player': 3
+                        }
+                    elif game_format == 'commander':
+                        tournament_data['format_config'] = {
+                            'pod_size': 4,
+                            'point_system': 'standard'
+                        }
+                
+                # Insert tournament
+                result = self.db.tournaments.insert_one(tournament_data)
+                return str(result.inserted_id)
+            else:
+                # PostgreSQL implementation
+                # Convert JSON fields
+                tiebreakers = tournament_data.get('tiebreakers', {
+                    'match_points': True,
+                    'opponents_match_win_percentage': True,
+                    'game_win_percentage': True,
+                    'opponents_game_win_percentage': True
+                })
+                
+                time_limits = tournament_data.get('time_limits', {})
+                
+                # Set default structure-specific configuration
+                structure_type = tournament_data.get('structure', 'swiss').lower()
+                structure_config = tournament_data.get('structure_config', {})
+                if not structure_config:
+                    if structure_type == 'swiss':
+                        structure_config = {
+                            'allow_intentional_draws': True,
+                            'allow_byes': True,
+                            'use_seeds_for_byes': False
+                        }
+                    elif structure_type == 'single_elimination':
+                        structure_config = {
+                            'seeded': True,
+                            'third_place_match': True
+                        }
+                    elif structure_type == 'double_elimination':
+                        structure_config = {
+                            'seeded': True,
+                            'grand_finals_modifier': 'none'
+                        }
+                
+                # Set format-specific configuration
                 game_format = tournament_data.get('format', '').lower()
-                if game_format == 'draft':
-                    tournament_data['format_config'] = {
-                        'pod_size': 8,
-                        'packs_per_player': 3
-                    }
-                elif game_format == 'commander':
-                    tournament_data['format_config'] = {
-                        'pod_size': 4,
-                        'point_system': 'standard'
-                    }
-            
-            # Insert tournament
-            result = self.db.tournaments.insert_one(tournament_data)
-            return str(result.inserted_id)
+                format_config = tournament_data.get('format_config', {})
+                if not format_config:
+                    if game_format == 'draft':
+                        format_config = {
+                            'pod_size': 8,
+                            'packs_per_player': 3
+                        }
+                    elif game_format == 'commander':
+                        format_config = {
+                            'pod_size': 4,
+                            'point_system': 'standard'
+                        }
+                
+                # Set default rounds
+                rounds = tournament_data.get('rounds', 0)
+                
+                # Insert tournament
+                result = self.db.execute(text("""
+                    INSERT INTO tournaments 
+                    (name, format, structure, date, location, status, rounds, current_round, 
+                     created_at, updated_at, tiebreakers, time_limits, format_config, structure_config)
+                    VALUES 
+                    (:name, :format, :structure, :date, :location, 'planned', :rounds, 0, 
+                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :tiebreakers, :time_limits, :format_config, :structure_config)
+                    RETURNING id
+                """), {
+                    'name': tournament_data['name'],
+                    'format': tournament_data['format'],
+                    'structure': tournament_data.get('structure', 'swiss'),
+                    'date': tournament_data['date'],
+                    'location': tournament_data.get('location', ''),
+                    'rounds': rounds,
+                    'tiebreakers': json.dumps(tiebreakers),
+                    'time_limits': json.dumps(time_limits),
+                    'format_config': json.dumps(format_config),
+                    'structure_config': json.dumps(structure_config)
+                })
+                
+                self.db.commit()
+                tournament_id = result.scalar()
+                return str(tournament_id)
         except Exception as e:
             print(f"Error creating tournament: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return None
     
     def update_tournament(self, tournament_id, tournament_data):
         """Update tournament by ID."""
         try:
-            # Get current tournament
-            current_tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not current_tournament:
-                return False
-            
-            # Don't allow updating active tournaments
-            if current_tournament['status'] == 'active' and 'status' in tournament_data:
-                if tournament_data['status'] != 'active' and tournament_data['status'] != 'completed':
+            if self.db_type == 'mongodb':
+                # Check if tournament exists
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
+                if not tournament:
                     return False
-            
-            # Remove fields that shouldn't be updated
-            protected_fields = ['created_at', 'players', 'matches']
-            for field in protected_fields:
-                if field in tournament_data:
-                    del tournament_data[field]
-            
-            # Add updated timestamp
-            tournament_data['updated_at'] = datetime.utcnow().isoformat()
-            
-            # Update tournament
-            result = self.db.tournaments.update_one(
-                {'_id': ObjectId(tournament_id)},
-                {'$set': tournament_data}
-            )
-            return result.modified_count > 0
+                
+                # Update timestamp
+                tournament_data['updated_at'] = datetime.utcnow().isoformat()
+                
+                # Remove fields that shouldn't be updated
+                protected_fields = ['_id', 'id', 'created_at', 'players', 'matches']
+                for field in protected_fields:
+                    if field in tournament_data:
+                        del tournament_data[field]
+                
+                # Update tournament
+                result = self.db.tournaments.update_one(
+                    {'_id': ObjectId(tournament_id)},
+                    {'$set': tournament_data}
+                )
+                
+                return result.modified_count > 0
+            else:
+                # PostgreSQL implementation
+                # Check if tournament exists
+                result = self.db.execute(text("""
+                    SELECT id FROM tournaments WHERE id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                if not result.first():
+                    return False
+                
+                # Remove fields that shouldn't be updated
+                protected_fields = ['id', 'created_at']
+                update_data = {k: v for k, v in tournament_data.items() if k not in protected_fields}
+                
+                if not update_data:
+                    return False
+                
+                # Handle JSON fields
+                for json_field in ['tiebreakers', 'time_limits', 'format_config', 'structure_config']:
+                    if json_field in update_data and update_data[json_field] is not None:
+                        update_data[json_field] = json.dumps(update_data[json_field])
+                
+                # Build set clause
+                set_clauses = []
+                params = {'tournament_id': int(tournament_id)}
+                
+                for key, value in update_data.items():
+                    set_clauses.append(f"{key} = :{key}")
+                    params[key] = value
+                
+                # Add updated timestamp
+                set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+                
+                query = f"""
+                    UPDATE tournaments
+                    SET {', '.join(set_clauses)}
+                    WHERE id = :tournament_id
+                """
+                
+                result = self.db.execute(text(query), params)
+                self.db.commit()
+                
+                return result.rowcount > 0
         except Exception as e:
             print(f"Error updating tournament: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
     
     def delete_tournament(self, tournament_id):
         """Delete tournament by ID."""
         try:
-            # Check if tournament is active
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if tournament and tournament['status'] == 'active':
-                return False
-            
-            # Delete tournament
-            result = self.db.tournaments.delete_one({'_id': ObjectId(tournament_id)})
-            
-            # Delete related matches
-            self.db.matches.delete_many({'tournament_id': tournament_id})
-            
-            # Delete related standings
-            self.db.standings.delete_many({'tournament_id': tournament_id})
-            
-            # Update player records
-            self.db.players.update_many(
-                {'tournaments': tournament_id},
-                {'$pull': {'tournaments': tournament_id}}
-            )
-            
-            return result.deleted_count > 0
+            if self.db_type == 'mongodb':
+                # Check if tournament exists
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
+                if not tournament:
+                    return False
+                
+                # Check if tournament has matches
+                if len(tournament.get('matches', [])) > 0:
+                    return False
+                
+                # Delete tournament
+                result = self.db.tournaments.delete_one({'_id': ObjectId(tournament_id)})
+                return result.deleted_count > 0
+            else:
+                # PostgreSQL implementation
+                # Check if tournament has matches
+                result = self.db.execute(text("""
+                    SELECT COUNT(*) FROM matches WHERE tournament_id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                if result.scalar() > 0:
+                    return False
+                
+                # Delete tournament players junction
+                self.db.execute(text("""
+                    DELETE FROM tournament_players WHERE tournament_id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                # Delete standings
+                self.db.execute(text("""
+                    DELETE FROM standings WHERE tournament_id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                # Delete tournament
+                result = self.db.execute(text("""
+                    DELETE FROM tournaments WHERE id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                self.db.commit()
+                return result.rowcount > 0
         except Exception as e:
             print(f"Error deleting tournament: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
     
     def get_tournament_players(self, tournament_id):
         """Get players for a tournament."""
         try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament or 'players' not in tournament:
-                return []
-            
-            player_ids = [ObjectId(p_id) if not isinstance(p_id, ObjectId) else p_id 
-                         for p_id in tournament['players']]
-            
-            players = list(self.db.players.find({
-                '_id': {'$in': player_ids}
-            }, {'_id': 1, 'name': 1, 'email': 1, 'active': 1}))
-            
-            for player in players:
-                player['id'] = str(player.pop('_id'))
-            
-            return players
+            if self.db_type == 'mongodb':
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
+                if not tournament:
+                    return []
+                
+                player_ids = tournament.get('players', [])
+                if not player_ids:
+                    return []
+                
+                # Convert string IDs to ObjectIds
+                player_obj_ids = [ObjectId(pid) if isinstance(pid, str) else pid for pid in player_ids]
+                
+                # Get player documents
+                players = list(self.db.players.find({'_id': {'$in': player_obj_ids}}))
+                
+                # Convert ObjectIds to strings
+                for player in players:
+                    player['id'] = str(player.pop('_id'))
+                
+                return players
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    SELECT p.id, p.name, p.email, p.phone, p.dci_number, p.active
+                    FROM players p
+                    JOIN tournament_players tp ON p.id = tp.player_id
+                    WHERE tp.tournament_id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                players = []
+                for row in result.mappings():
+                    player = dict(row)
+                    player['id'] = str(player['id'])
+                    players.append(player)
+                
+                return players
         except Exception as e:
             print(f"Error getting tournament players: {e}")
             return []
@@ -238,1355 +510,902 @@ class TournamentService:
     def register_player(self, tournament_id, player_id):
         """Register a player for a tournament."""
         try:
-            # Check if tournament exists and is not completed
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament or tournament['status'] == 'completed':
-                return False
-            
-            # Check if player exists
-            player = self.db.players.find_one({'_id': ObjectId(player_id)})
-            if not player:
-                return False
-            
-            # Check if player is already registered
-            if player_id in tournament.get('players', []):
-                return True  # Already registered
-            
-            # Register player
-            self.db.tournaments.update_one(
-                {'_id': ObjectId(tournament_id)},
-                {'$push': {'players': player_id}}
-            )
-            
-            # Update player record
-            self.db.players.update_one(
-                {'_id': ObjectId(player_id)},
-                {'$push': {'tournaments': tournament_id}}
-            )
-            
-            # Create standing record
-            self.db.standings.insert_one({
-                'tournament_id': tournament_id,
-                'player_id': player_id,
-                'matches_played': 0,
-                'match_points': 0,
-                'game_points': 0,
-                'match_win_percentage': 0.0,
-                'game_win_percentage': 0.0,
-                'opponents_match_win_percentage': 0.0,
-                'opponents_game_win_percentage': 0.0,
-                'active': True
-            })
-            
-            return True
+            if self.db_type == 'mongodb':
+                # Check if tournament and player exist
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
+                player = self.db.players.find_one({'_id': ObjectId(player_id)})
+                
+                if not tournament or not player:
+                    return False
+                
+                # Check if player is already registered
+                if player_id in tournament.get('players', []):
+                    return True
+                
+                # Register player
+                result = self.db.tournaments.update_one(
+                    {'_id': ObjectId(tournament_id)},
+                    {'$addToSet': {'players': player_id}}
+                )
+                
+                # Create standing for player if not exists
+                standing = self.db.standings.find_one({
+                    'tournament_id': tournament_id,
+                    'player_id': player_id
+                })
+                
+                if not standing:
+                    self.db.standings.insert_one({
+                        'tournament_id': tournament_id,
+                        'player_id': player_id,
+                        'matches_played': 0,
+                        'match_points': 0,
+                        'game_points': 0,
+                        'match_win_percentage': 0.0,
+                        'game_win_percentage': 0.0,
+                        'opponents_match_win_percentage': 0.0,
+                        'opponents_game_win_percentage': 0.0,
+                        'rank': 0,
+                        'active': True
+                    })
+                
+                return result.modified_count > 0
+            else:
+                # PostgreSQL implementation
+                # Check if tournament and player exist
+                tournament_result = self.db.execute(text("""
+                    SELECT id FROM tournaments WHERE id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                player_result = self.db.execute(text("""
+                    SELECT id FROM players WHERE id = :player_id
+                """), {'player_id': int(player_id)})
+                
+                if not tournament_result.first() or not player_result.first():
+                    return False
+                
+                # Check if player is already registered
+                junction_result = self.db.execute(text("""
+                    SELECT 1 FROM tournament_players
+                    WHERE tournament_id = :tournament_id AND player_id = :player_id
+                """), {
+                    'tournament_id': int(tournament_id),
+                    'player_id': int(player_id)
+                })
+                
+                if junction_result.first():
+                    return True
+                
+                # Register player
+                self.db.execute(text("""
+                    INSERT INTO tournament_players (tournament_id, player_id)
+                    VALUES (:tournament_id, :player_id)
+                """), {
+                    'tournament_id': int(tournament_id),
+                    'player_id': int(player_id)
+                })
+                
+                # Create standing for player if not exists
+                standing_result = self.db.execute(text("""
+                    SELECT id FROM standings
+                    WHERE tournament_id = :tournament_id AND player_id = :player_id
+                """), {
+                    'tournament_id': int(tournament_id),
+                    'player_id': int(player_id)
+                })
+                
+                if not standing_result.first():
+                    self.db.execute(text("""
+                        INSERT INTO standings (
+                            tournament_id, player_id, matches_played, match_points,
+                            game_points, match_win_percentage, game_win_percentage,
+                            opponents_match_win_percentage, opponents_game_win_percentage,
+                            rank, active
+                        ) VALUES (
+                            :tournament_id, :player_id, 0, 0,
+                            0, 0.0, 0.0,
+                            0.0, 0.0,
+                            0, TRUE
+                        )
+                    """), {
+                        'tournament_id': int(tournament_id),
+                        'player_id': int(player_id)
+                    })
+                
+                self.db.commit()
+                return True
         except Exception as e:
             print(f"Error registering player: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
     
     def drop_player(self, tournament_id, player_id):
         """Drop a player from a tournament."""
         try:
-            # Check if tournament exists
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament:
-                return False
-            
-            # Check if player is registered
-            if player_id not in tournament.get('players', []):
-                return False
-            
-            # If tournament is active, mark player as inactive in standings
-            if tournament['status'] == 'active':
-                self.db.standings.update_one(
-                    {'tournament_id': tournament_id, 'player_id': player_id},
+            if self.db_type == 'mongodb':
+                # Update standing to mark player as inactive
+                result = self.db.standings.update_one(
+                    {
+                        'tournament_id': tournament_id,
+                        'player_id': player_id
+                    },
                     {'$set': {'active': False}}
                 )
+                
+                return result.modified_count > 0
             else:
-                # If tournament is not active, remove player completely
-                self.db.tournaments.update_one(
-                    {'_id': ObjectId(tournament_id)},
-                    {'$pull': {'players': player_id}}
-                )
-                
-                self.db.players.update_one(
-                    {'_id': ObjectId(player_id)},
-                    {'$pull': {'tournaments': tournament_id}}
-                )
-                
-                self.db.standings.delete_one({
-                    'tournament_id': tournament_id,
-                    'player_id': player_id
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    UPDATE standings
+                    SET active = FALSE
+                    WHERE tournament_id = :tournament_id AND player_id = :player_id
+                """), {
+                    'tournament_id': int(tournament_id),
+                    'player_id': int(player_id)
                 })
-            
-            return True
+                
+                self.db.commit()
+                return result.rowcount > 0
         except Exception as e:
             print(f"Error dropping player: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
     
-    def reinstate_player(self, tournament_id, player_id):
+    def reinstatePlayer(self, tournament_id, player_id):
         """Reinstate a dropped player."""
         try:
-            # Check if tournament is active
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament or tournament['status'] != 'active':
-                return False
-            
-            # Check if player exists in standings
-            standing = self.db.standings.find_one({
-                'tournament_id': tournament_id,
-                'player_id': player_id
-            })
-            
-            if not standing:
-                return False
-            
-            # Reactivate player
-            self.db.standings.update_one(
-                {'tournament_id': tournament_id, 'player_id': player_id},
-                {'$set': {'active': True}}
-            )
-            
-            return True
+            if self.db_type == 'mongodb':
+                # Update standing to mark player as active
+                result = self.db.standings.update_one(
+                    {
+                        'tournament_id': tournament_id,
+                        'player_id': player_id
+                    },
+                    {'$set': {'active': True}}
+                )
+                
+                return result.modified_count > 0
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    UPDATE standings
+                    SET active = TRUE
+                    WHERE tournament_id = :tournament_id AND player_id = :player_id
+                """), {
+                    'tournament_id': int(tournament_id),
+                    'player_id': int(player_id)
+                })
+                
+                self.db.commit()
+                return result.rowcount > 0
         except Exception as e:
             print(f"Error reinstating player: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
     
     def get_tournament_rounds(self, tournament_id):
         """Get rounds for a tournament."""
         try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament:
-                return []
-            
-            rounds = []
-            for round_num in range(1, tournament['current_round'] + 1):
-                matches = list(self.db.matches.find({
-                    'tournament_id': tournament_id,
-                    'round': round_num
-                }, {'_id': 1, 'status': 1}))
+            if self.db_type == 'mongodb':
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
+                if not tournament:
+                    return []
                 
-                rounds.append({
-                    'round': round_num,
-                    'match_count': len(matches),
-                    'completed': all(m.get('status') == 'completed' for m in matches)
-                })
-            
-            return rounds
+                rounds = []
+                for i in range(1, tournament.get('current_round', 0) + 1):
+                    rounds.append({
+                        'round_number': i,
+                        'completed': self._is_round_completed_mongo(tournament_id, i)
+                    })
+                
+                return rounds
+            else:
+                # PostgreSQL implementation
+                # Get tournament current round
+                tournament_result = self.db.execute(text("""
+                    SELECT current_round FROM tournaments WHERE id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                row = tournament_result.first()
+                if not row:
+                    return []
+                
+                current_round = row[0]
+                
+                # Build rounds data
+                rounds = []
+                for i in range(1, current_round + 1):
+                    # Check if round is completed
+                    round_completed = self._is_round_completed_sql(int(tournament_id), i)
+                    
+                    rounds.append({
+                        'round_number': i,
+                        'completed': round_completed
+                    })
+                
+                return rounds
         except Exception as e:
             print(f"Error getting tournament rounds: {e}")
             return []
     
+    def _is_round_completed_mongo(self, tournament_id, round_number):
+        """Check if all matches in a round are completed (MongoDB)."""
+        try:
+            # Count total matches in the round
+            total_matches = self.db.matches.count_documents({
+                'tournament_id': tournament_id,
+                'round': round_number
+            })
+            
+            # Count completed matches in the round
+            completed_matches = self.db.matches.count_documents({
+                'tournament_id': tournament_id,
+                'round': round_number,
+                'status': 'completed'
+            })
+            
+            return total_matches > 0 and total_matches == completed_matches
+        except Exception as e:
+            print(f"Error checking if round is completed: {e}")
+            return False
+    
+    def _is_round_completed_sql(self, tournament_id, round_number):
+        """Check if all matches in a round are completed (PostgreSQL)."""
+        try:
+            result = self.db.execute(text("""
+                SELECT 
+                    COUNT(*) as total_matches,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_matches
+                FROM matches
+                WHERE tournament_id = :tournament_id AND round = :round
+            """), {
+                'tournament_id': tournament_id,
+                'round': round_number
+            })
+            
+            row = result.first()
+            if not row or row[0] == 0:
+                return False
+            
+            total_matches, completed_matches = row
+            return total_matches == completed_matches
+        except Exception as e:
+            print(f"Error checking if round is completed: {e}")
+            return False
+    
     def get_round_pairings(self, tournament_id, round_number):
         """Get pairings for a specific round."""
         try:
-            matches = list(self.db.matches.find({
-                'tournament_id': tournament_id,
-                'round': int(round_number)
-            }))
-            
-            pairings = []
-            for match in matches:
-                match_id = str(match.pop('_id'))
+            if self.db_type == 'mongodb':
+                # Get matches for the round
+                matches = list(self.db.matches.find({
+                    'tournament_id': tournament_id,
+                    'round': int(round_number)
+                }))
                 
                 # Get player names
-                player1 = self.db.players.find_one({'_id': ObjectId(match['player1_id'])})
-                player1_name = player1['name'] if player1 else 'Unknown'
-                
-                if match.get('player2_id'):
-                    player2 = self.db.players.find_one({'_id': ObjectId(match['player2_id'])})
-                    player2_name = player2['name'] if player2 else 'Unknown'
-                else:
+                pairings = []
+                for match in matches:
+                    match_id = str(match.pop('_id'))
+                    
+                    # Get player 1 name
+                    player1 = self.db.players.find_one({'_id': ObjectId(match['player1_id'])})
+                    player1_name = player1['name'] if player1 else 'Unknown'
+                    
+                    # Get player 2 name (if not a bye)
                     player2_name = 'BYE'
+                    if 'player2_id' in match and match['player2_id']:
+                        player2 = self.db.players.find_one({'_id': ObjectId(match['player2_id'])})
+                        player2_name = player2['name'] if player2 else 'Unknown'
+                    
+                    pairings.append({
+                        'match_id': match_id,
+                        'table_number': match.get('table_number', 0),
+                        'player1_id': match['player1_id'],
+                        'player1_name': player1_name,
+                        'player2_id': match.get('player2_id'),
+                        'player2_name': player2_name,
+                        'status': match.get('status', 'pending'),
+                        'result': match.get('result'),
+                        'player1_wins': match.get('player1_wins', 0),
+                        'player2_wins': match.get('player2_wins', 0),
+                        'draws': match.get('draws', 0)
+                    })
                 
-                pairings.append({
-                    'id': match_id,
-                    'tournament_id': tournament_id,
-                    'round': int(round_number),
-                    'table_number': match.get('table_number', 0),
-                    'player1_id': match['player1_id'],
-                    'player1_name': player1_name,
-                    'player2_id': match.get('player2_id'),
-                    'player2_name': player2_name,
-                    'player1_wins': match.get('player1_wins', 0),
-                    'player2_wins': match.get('player2_wins', 0),
-                    'draws': match.get('draws', 0),
-                    'result': match.get('result', ''),
-                    'status': match.get('status', 'pending'),
-                    'bracket': match.get('bracket'),
-                    'bracket_position': match.get('bracket_position')
+                return pairings
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    SELECT 
+                        m.id, m.table_number, m.status, m.result,
+                        m.player1_id, p1.name as player1_name,
+                        m.player2_id, p2.name as player2_name,
+                        m.player1_wins, m.player2_wins, m.draws
+                    FROM matches m
+                    LEFT JOIN players p1 ON m.player1_id = p1.id
+                    LEFT JOIN players p2 ON m.player2_id = p2.id
+                    WHERE m.tournament_id = :tournament_id AND m.round = :round
+                    ORDER BY m.table_number
+                """), {
+                    'tournament_id': int(tournament_id),
+                    'round': int(round_number)
                 })
-            
-            return pairings
+                
+                pairings = []
+                for row in result.mappings():
+                    pairings.append({
+                        'match_id': str(row['id']),
+                        'table_number': row['table_number'] or 0,
+                        'player1_id': str(row['player1_id']),
+                        'player1_name': row['player1_name'],
+                        'player2_id': str(row['player2_id']) if row['player2_id'] else None,
+                        'player2_name': row['player2_name'] if row['player2_id'] else 'BYE',
+                        'status': row['status'],
+                        'result': row['result'],
+                        'player1_wins': row['player1_wins'] or 0,
+                        'player2_wins': row['player2_wins'] or 0,
+                        'draws': row['draws'] or 0
+                    })
+                
+                return pairings
         except Exception as e:
             print(f"Error getting round pairings: {e}")
             return []
     
     def create_next_round(self, tournament_id):
-        """Create pairings for the next round (Swiss)."""
+        """Create pairings for the next round."""
         try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament or tournament['status'] != 'active' or tournament.get('structure', '').lower() != 'swiss':
-                return None
-            
-            # Check if current round is completed
-            current_round = tournament['current_round']
-            if current_round > 0:
-                matches = list(self.db.matches.find({
+            if self.db_type == 'mongodb':
+                # Get tournament
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
+                if not tournament:
+                    return False
+                
+                # Check if tournament is active
+                if tournament['status'] != 'active':
+                    return False
+                
+                # Check if all matches in the current round are completed
+                current_round = tournament.get('current_round', 0)
+                if current_round > 0:
+                    if not self._is_round_completed_mongo(tournament_id, current_round):
+                        return False
+                
+                # Get active players (using standings)
+                standings = list(self.db.standings.find({
                     'tournament_id': tournament_id,
-                    'round': current_round
+                    'active': True
+                }).sort([
+                    ('match_points', -1),
+                    ('opponents_match_win_percentage', -1),
+                    ('game_win_percentage', -1),
+                    ('opponents_game_win_percentage', -1)
+                ]))
+                
+                player_ids = [s['player_id'] for s in standings]
+                
+                if not player_ids:
+                    return False
+                
+                # Get previous matches
+                previous_matches = list(self.db.matches.find({
+                    'tournament_id': tournament_id
                 }))
                 
-                if not all(m.get('status') == 'completed' for m in matches):
-                    return None  # Current round not completed
-            
-            # Calculate next round number
-            next_round = current_round + 1
-            
-            # Check if we've reached the maximum number of rounds
-            if tournament['rounds'] > 0 and next_round > tournament['rounds']:
-                return None
-            
-            # Get active players
-            standings = list(self.db.standings.find({
-                'tournament_id': tournament_id,
-                'active': True
-            }))
-            
-            # Sort standings by match points and tiebreakers
-            standings.sort(key=lambda s: (
-                s.get('match_points', 0),
-                s.get('opponents_match_win_percentage', 0),
-                s.get('game_win_percentage', 0),
-                s.get('opponents_game_win_percentage', 0)
-            ), reverse=True)
-            
-            # Get player IDs in order
-            player_ids = [s['player_id'] for s in standings]
-            
-            # Get previous matches
-            previous_matches = list(self.db.matches.find({
-                'tournament_id': tournament_id
-            }))
-            
-            # Get structure config
-            structure_config = tournament.get('structure_config', {})
-            use_seeds_for_byes = structure_config.get('use_seeds_for_byes', False)
-            
-            # Create pairings using Swiss algorithm
-            pairings = self.swiss_pairing.create_pairings(
-                player_ids, 
-                previous_matches,
-                use_seeds_for_byes
-            )
-            
-            # Create match documents
-            match_ids = []
-            table_number = 1
-            
-            for pair in pairings:
-                player1_id = pair[0]
-                player2_id = pair[1] if len(pair) > 1 else None  # BYE
+                # Create pairings using Swiss algorithm
+                next_round = current_round + 1
+                structure = tournament.get('structure', 'swiss')
                 
-                match_data = {
-                    'tournament_id': tournament_id,
-                    'round': next_round,
-                    'table_number': table_number,
-                    'player1_id': player1_id,
-                    'player2_id': player2_id,
-                    'player1_wins': 0,
-                    'player2_wins': 0,
-                    'draws': 0,
-                    'status': 'pending',
-                    'result': ''
-                }
-                
-                # If player2 is None (BYE), automatically set result
-                if player2_id is None:
-                    match_data['status'] = 'completed'
-                    match_data['result'] = 'bye'
-                    match_data['player1_wins'] = 2
-                    match_data['player2_wins'] = 0
+                if structure == 'swiss':
+                    # Use Swiss pairing algorithm
+                    use_seeds = tournament.get('structure_config', {}).get('use_seeds_for_byes', False)
+                    pairings = self.swiss_pairing.create_pairings(player_ids, previous_matches, use_seeds)
                     
-                    # Update standings for player with BYE
-                    self.db.standings.update_one(
-                        {'tournament_id': tournament_id, 'player_id': player1_id},
-                        {'$inc': {
-                            'matches_played': 1,
-                            'match_points': 3,  # Win = 3 points
-                            'game_points': 2    # 2-0 win
-                        }}
-                    )
+                    # Create matches from pairings
+                    for i, pairing in enumerate(pairings):
+                        match_data = {
+                            'tournament_id': tournament_id,
+                            'round': next_round,
+                            'table_number': i + 1,
+                            'player1_id': pairing[0],
+                            'player1_wins': 0,
+                            'player2_wins': 0,
+                            'draws': 0,
+                            'status': 'pending'
+                        }
+                        
+                        # Set player2 or bye
+                        if len(pairing) > 1:
+                            match_data['player2_id'] = pairing[1]
+                        else:
+                            # This is a bye
+                            match_data['result'] = 'win'  # Player 1 wins automatically
+                            match_data['status'] = 'completed'
+                            match_data['player1_wins'] = 2
+                            
+                            # Update standings for player with bye
+                            self.db.standings.update_one(
+                                {
+                                    'tournament_id': tournament_id,
+                                    'player_id': pairing[0]
+                                },
+                                {'$inc': {
+                                    'matches_played': 1,
+                                    'match_points': 3,  # Win = 3 points
+                                    'game_points': 2    # 2-0 win
+                                }}
+                            )
+                        
+                        # Create match
+                        match_id = self.db.matches.insert_one(match_data).inserted_id
+                        
+                        # Update tournament matches list
+                        self.db.tournaments.update_one(
+                            {'_id': ObjectId(tournament_id)},
+                            {'$push': {'matches': str(match_id)}}
+                        )
+                else:
+                    # TODO: Implement other tournament structures (single/double elimination)
+                    pass
                 
-                # Insert match
-                result = self.db.matches.insert_one(match_data)
-                match_ids.append(str(result.inserted_id))
+                # Update tournament round
+                self.db.tournaments.update_one(
+                    {'_id': ObjectId(tournament_id)},
+                    {'$set': {'current_round': next_round}}
+                )
                 
-                table_number += 1
-            
-            # Update tournament
-            self.db.tournaments.update_one(
-                {'_id': ObjectId(tournament_id)},
-                {
-                    '$set': {'current_round': next_round},
-                    '$push': {'matches': {'$each': match_ids}}
-                }
-            )
-            
-            # Return pairings
-            return self.get_round_pairings(tournament_id, next_round)
+                # Return new pairings
+                return self.get_round_pairings(tournament_id, next_round)
+            else:
+                # PostgreSQL implementation
+                # Get tournament
+                tournament_result = self.db.execute(text("""
+                    SELECT status, current_round, structure, structure_config
+                    FROM tournaments
+                    WHERE id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                row = tournament_result.first()
+                if not row:
+                    return False
+                
+                status, current_round, structure, structure_config = row
+                
+                # Check if tournament is active
+                if status != 'active':
+                    return False
+                
+                # Check if all matches in current round are completed
+                if current_round > 0:
+                    if not self._is_round_completed_sql(int(tournament_id), current_round):
+                        return False
+                
+                # Get active players (using standings)
+                standings_result = self.db.execute(text("""
+                    SELECT player_id
+                    FROM standings
+                    WHERE tournament_id = :tournament_id AND active = TRUE
+                    ORDER BY match_points DESC,
+                             opponents_match_win_percentage DESC,
+                             game_win_percentage DESC,
+                             opponents_game_win_percentage DESC
+                """), {'tournament_id': int(tournament_id)})
+                
+                player_ids = [str(row[0]) for row in standings_result]
+                
+                if not player_ids:
+                    return False
+                
+                # Get previous matches
+                matches_result = self.db.execute(text("""
+                    SELECT id, player1_id, player2_id, result, status
+                    FROM matches
+                    WHERE tournament_id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                previous_matches = [dict(row._mapping) for row in matches_result]
+                
+                # Extract structure config
+                if structure_config:
+                    structure_config = json.loads(structure_config)
+                else:
+                    structure_config = {}
+                
+                # Create pairings using Swiss algorithm
+                next_round = current_round + 1
+                
+                if structure.lower() == 'swiss':
+                    # Use Swiss pairing algorithm
+                    use_seeds = structure_config.get('use_seeds_for_byes', False)
+                    pairings = self.swiss_pairing.create_pairings(player_ids, previous_matches, use_seeds)
+                    
+                    # Create matches from pairings
+                    for i, pairing in enumerate(pairings):
+                        player1_id = int(pairing[0])
+                        player2_id = int(pairing[1]) if len(pairing) > 1 else None
+                        
+                        # Prepare match data
+                        if player2_id:
+                            # Regular match
+                            self.db.execute(text("""
+                                INSERT INTO matches (
+                                    tournament_id, round, table_number,
+                                    player1_id, player2_id,
+                                    player1_wins, player2_wins, draws,
+                                    status
+                                ) VALUES (
+                                    :tournament_id, :round, :table_number,
+                                    :player1_id, :player2_id,
+                                    0, 0, 0,
+                                    'pending'
+                                )
+                            """), {
+                                'tournament_id': int(tournament_id),
+                                'round': next_round,
+                                'table_number': i + 1,
+                                'player1_id': player1_id,
+                                'player2_id': player2_id
+                            })
+                        else:
+                            # Bye match
+                            self.db.execute(text("""
+                                INSERT INTO matches (
+                                    tournament_id, round, table_number,
+                                    player1_id, player2_id,
+                                    player1_wins, player2_wins, draws,
+                                    status, result
+                                ) VALUES (
+                                    :tournament_id, :round, :table_number,
+                                    :player1_id, NULL,
+                                    2, 0, 0,
+                                    'completed', 'win'
+                                )
+                            """), {
+                                'tournament_id': int(tournament_id),
+                                'round': next_round,
+                                'table_number': i + 1,
+                                'player1_id': player1_id
+                            })
+                            
+                            # Update standings for player with bye
+                            self.db.execute(text("""
+                                UPDATE standings
+                                SET matches_played = matches_played + 1,
+                                    match_points = match_points + 3,
+                                    game_points = game_points + 2
+                                WHERE tournament_id = :tournament_id AND player_id = :player_id
+                            """), {
+                                'tournament_id': int(tournament_id),
+                                'player_id': player1_id
+                            })
+                else:
+                    # TODO: Implement other tournament structures (single/double elimination)
+                    pass
+                
+                # Update tournament round
+                self.db.execute(text("""
+                    UPDATE tournaments
+                    SET current_round = :next_round
+                    WHERE id = :tournament_id
+                """), {
+                    'tournament_id': int(tournament_id),
+                    'next_round': next_round
+                })
+                
+                self.db.commit()
+                
+                # Return new pairings
+                return self.get_round_pairings(tournament_id, next_round)
         except Exception as e:
             print(f"Error creating next round: {e}")
-            return None
+            if self.db_type == 'postgresql':
+                self.db.rollback()
+            return []
     
-    def get_tournament_standings(self, tournament_id):
+    def get_standings(self, tournament_id):
         """Get standings for a tournament."""
         try:
-            standings = list(self.db.standings.find({
-                'tournament_id': tournament_id
-            }))
-            
-            # Sort standings by match points and tiebreakers
-            standings.sort(key=lambda s: (
-                s.get('match_points', 0),
-                s.get('opponents_match_win_percentage', 0),
-                s.get('game_win_percentage', 0),
-                s.get('opponents_game_win_percentage', 0)
-            ), reverse=True)
-            
-            # Add rank and player names
-            for i, standing in enumerate(standings):
-                standing['rank'] = i + 1
+            if self.db_type == 'mongodb':
+                # Get standings
+                standings = list(self.db.standings.find({
+                    'tournament_id': tournament_id
+                }).sort([
+                    ('match_points', -1),
+                    ('opponents_match_win_percentage', -1),
+                    ('game_win_percentage', -1),
+                    ('opponents_game_win_percentage', -1)
+                ]))
                 
-                # Get player name
-                player = self.db.players.find_one({'_id': ObjectId(standing['player_id'])})
-                standing['player_name'] = player['name'] if player else 'Unknown'
+                # Add player names
+                for i, standing in enumerate(standings):
+                    player = self.db.players.find_one({'_id': ObjectId(standing['player_id'])})
+                    standing['player_name'] = player['name'] if player else 'Unknown'
+                    
+                    # Add rank if not present
+                    if 'rank' not in standing or standing['rank'] == 0:
+                        standing['rank'] = i + 1
+                    
+                    # Add MongoDB ID
+                    standing['id'] = str(standing.pop('_id'))
                 
-                # Convert ID to string
-                standing['id'] = str(standing.pop('_id'))
-            
-            return standings
+                return standings
+            else:
+                # PostgreSQL implementation
+                # Update rankings first to ensure they're current
+                self.db.execute(text("""
+                    WITH ranked_standings AS (
+                        SELECT 
+                            id,
+                            ROW_NUMBER() OVER (
+                                ORDER BY 
+                                    match_points DESC,
+                                    opponents_match_win_percentage DESC,
+                                    game_win_percentage DESC,
+                                    opponents_game_win_percentage DESC
+                            ) as rank_num
+                        FROM standings
+                        WHERE tournament_id = :tournament_id
+                    )
+                    UPDATE standings
+                    SET rank = rs.rank_num
+                    FROM ranked_standings rs
+                    WHERE standings.id = rs.id
+                """), {'tournament_id': int(tournament_id)})
+                
+                self.db.commit()
+                
+                # Get standings with player names
+                result = self.db.execute(text("""
+                    SELECT s.*, p.name as player_name
+                    FROM standings s
+                    JOIN players p ON s.player_id = p.id
+                    WHERE s.tournament_id = :tournament_id
+                    ORDER BY s.rank
+                """), {'tournament_id': int(tournament_id)})
+                
+                standings = []
+                for row in result.mappings():
+                    standing = dict(row)
+                    standing['id'] = str(standing['id'])
+                    standing['player_id'] = str(standing['player_id'])
+                    standing['tournament_id'] = str(standing['tournament_id'])
+                    standings.append(standing)
+                
+                return standings
         except Exception as e:
-            print(f"Error getting tournament standings: {e}")
+            print(f"Error getting standings: {e}")
             return []
     
     def update_standings(self, tournament_id, standings_data):
-        """Update tournament standings manually."""
+        """Update standings manually."""
         try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament:
-                return False
-            
-            for standing in standings_data:
-                standing_id = standing.pop('id', None)
+            if self.db_type == 'mongodb':
+                for standing_data in standings_data:
+                    standing_id = standing_data.pop('id', None)
+                    if not standing_id:
+                        continue
+                    
+                    # Update standing
+                    self.db.standings.update_one(
+                        {'_id': ObjectId(standing_id)},
+                        {'$set': standing_data}
+                    )
                 
-                if not standing_id:
-                    continue
+                return True
+            else:
+                # PostgreSQL implementation
+                for standing_data in standings_data:
+                    standing_id = standing_data.pop('id', None)
+                    if not standing_id:
+                        continue
+                    
+                    # Build set clause
+                    set_clauses = []
+                    params = {'standing_id': int(standing_id)}
+                    
+                    for key, value in standing_data.items():
+                        if key not in ['tournament_id', 'player_id']:  # Don't update these
+                            set_clauses.append(f"{key} = :{key}")
+                            params[key] = value
+                    
+                    if not set_clauses:
+                        continue
+                    
+                    query = f"""
+                        UPDATE standings
+                        SET {', '.join(set_clauses)}
+                        WHERE id = :standing_id
+                    """
+                    
+                    self.db.execute(text(query), params)
                 
-                # Remove player_name as it's not stored in the database
-                standing.pop('player_name', None)
-                
-                # Update standing
-                self.db.standings.update_one(
-                    {'_id': ObjectId(standing_id)},
-                    {'$set': standing}
-                )
-            
-            return True
+                self.db.commit()
+                return True
         except Exception as e:
             print(f"Error updating standings: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
     
     def start_tournament(self, tournament_id):
-        """Start a tournament and create initial bracket based on structure."""
+        """Start a tournament."""
         try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament or tournament['status'] != 'planned':
-                return False
-            
-            # Check if there are enough players
-            player_count = len(tournament.get('players', []))
-            if player_count < 2:
-                return False
-            
-            # Get tournament structure
-            structure = tournament.get('structure', 'swiss').lower()
-            
-            # Start tournament based on structure
-            if structure == 'single_elimination':
-                return self.create_single_elimination_bracket(tournament_id, tournament['players'])
-            elif structure == 'double_elimination':
-                return self.create_double_elimination_bracket(tournament_id, tournament['players'])
-            else:  # Swiss
-                # Calculate number of rounds if not specified
-                if tournament['rounds'] == 0:
-                    # Standard formula for Swiss tournaments
-                    tournament['rounds'] = max(3, (player_count - 1).bit_length())
+            if self.db_type == 'mongodb':
+                # Check if tournament exists and is in planned state
+                tournament = self.db.tournaments.find_one({
+                    '_id': ObjectId(tournament_id),
+                    'status': 'planned'
+                })
                 
-                # Update tournament status
+                if not tournament:
+                    return False
+                
+                # Check if there are at least 2 players
+                players = tournament.get('players', [])
+                if len(players) < 2:
+                    return False
+                
+                # Determine rounds based on number of players if not set
+                rounds = tournament.get('rounds', 0)
+                if rounds == 0:
+                    rounds = self._calculate_rounds(len(players))
+                
+                # Update tournament
                 self.db.tournaments.update_one(
                     {'_id': ObjectId(tournament_id)},
                     {'$set': {
                         'status': 'active',
-                        'rounds': tournament['rounds'],
-                        'updated_at': datetime.utcnow().isoformat()
+                        'rounds': rounds,
+                        'current_round': 0
                     }}
                 )
                 
-                # Create first round
-                pairings = self.create_next_round(tournament_id)
+                # Create initial standings for all players
+                for player_id in players:
+                    existing = self.db.standings.find_one({
+                        'tournament_id': tournament_id,
+                        'player_id': player_id
+                    })
+                    
+                    if not existing:
+                        self.db.standings.insert_one({
+                            'tournament_id': tournament_id,
+                            'player_id': player_id,
+                            'matches_played': 0,
+                            'match_points': 0,
+                            'game_points': 0,
+                            'match_win_percentage': 0.0,
+                            'game_win_percentage': 0.0,
+                            'opponents_match_win_percentage': 0.0,
+                            'opponents_game_win_percentage': 0.0,
+                            'rank': 0,
+                            'active': True
+                        })
                 
-                return pairings is not None
+                return True
+            else:
+                # PostgreSQL implementation
+                # Check if tournament exists and is in planned state
+                tournament_result = self.db.execute(text("""
+                    SELECT t.id,
+                           (SELECT COUNT(*) FROM tournament_players WHERE tournament_id = t.id) as player_count
+                    FROM tournaments t
+                    WHERE t.id = :tournament_id AND t.status = 'planned'
+                """), {'tournament_id': int(tournament_id)})
+                
+                row = tournament_result.first()
+                if not row:
+                    return False
+                
+                player_count = row[1]
+                
+                # Check if there are at least 2 players
+                if player_count < 2:
+                    return False
+                
+                # Get tournament rounds
+                rounds_result = self.db.execute(text("""
+                    SELECT rounds FROM tournaments WHERE id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                rounds = rounds_result.scalar()
+                
+                # Determine rounds based on number of players if not set
+                if rounds == 0:
+                    rounds = self._calculate_rounds(player_count)
+                
+                # Update tournament
+                self.db.execute(text("""
+                    UPDATE tournaments
+                    SET status = 'active',
+                        rounds = :rounds,
+                        current_round = 0
+                    WHERE id = :tournament_id
+                """), {
+                    'tournament_id': int(tournament_id),
+                    'rounds': rounds
+                })
+                
+                # Create initial standings for all players
+                self.db.execute(text("""
+                    INSERT INTO standings (
+                        tournament_id, player_id, matches_played, match_points,
+                        game_points, match_win_percentage, game_win_percentage,
+                        opponents_match_win_percentage, opponents_game_win_percentage,
+                        rank, active
+                    )
+                    SELECT 
+                        :tournament_id, player_id, 0, 0, 
+                        0, 0.0, 0.0, 
+                        0.0, 0.0, 
+                        0, TRUE
+                    FROM tournament_players
+                    WHERE tournament_id = :tournament_id
+                    AND NOT EXISTS (
+                        SELECT 1 FROM standings 
+                        WHERE tournament_id = :tournament_id 
+                        AND player_id = tournament_players.player_id
+                    )
+                """), {'tournament_id': int(tournament_id)})
+                
+                self.db.commit()
+                return True
         except Exception as e:
             print(f"Error starting tournament: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
     
-    def create_single_elimination_bracket(self, tournament_id, player_ids):
-        """Create a single elimination bracket."""
-        try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament:
-                return False
-            
-            # Get tournament structure config
-            structure_config = tournament.get('structure_config', {})
-            seeded = structure_config.get('seeded', True)
-            third_place_match = structure_config.get('third_place_match', True)
-            
-            # Ensure player_ids are strings
-            player_ids = [str(pid) if isinstance(pid, ObjectId) else pid for pid in player_ids]
-            
-            # Calculate number of rounds
-            player_count = len(player_ids)
-            rounds = (player_count - 1).bit_length()
-            
-            # Calculate the number of slots in the bracket (power of 2)
-            bracket_size = 2 ** rounds
-            
-            # Arrange players according to seeding
-            arranged_players = self._arrange_single_elim_seeds(player_ids, bracket_size, seeded)
-            
-            # Create first round matches
-            round_matches = []
-            for i in range(0, bracket_size, 2):
-                player1_idx = i
-                player2_idx = i + 1
-                
-                player1_id = arranged_players[player1_idx] if player1_idx < len(arranged_players) else None
-                player2_id = arranged_players[player2_idx] if player2_idx < len(arranged_players) else None
-                
-                # Skip creating matches for double byes
-                if player1_id is None and player2_id is None:
-                    continue
-                
-                # Automatically advance players with byes
-                if player1_id is not None and player2_id is None:
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': 1,
-                        'bracket': 'single',
-                        'bracket_position': i // 2,
-                        'player1_id': player1_id,
-                        'player2_id': None,  # BYE
-                        'player1_wins': 2,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'completed',
-                        'result': 'bye',
-                        'next_match': i // 4 if rounds > 1 else None
-                    }
-                elif player1_id is None and player2_id is not None:
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': 1,
-                        'bracket': 'single',
-                        'bracket_position': i // 2,
-                        'player1_id': player2_id,  # Swap so the real player is player1
-                        'player2_id': None,  # BYE
-                        'player1_wins': 2,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'completed',
-                        'result': 'bye',
-                        'next_match': i // 4 if rounds > 1 else None
-                    }
-                else:
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': 1,
-                        'bracket': 'single',
-                        'bracket_position': i // 2,
-                        'player1_id': player1_id,
-                        'player2_id': player2_id,
-                        'player1_wins': 0,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'pending',
-                        'result': '',
-                        'next_match': i // 4 if rounds > 1 else None
-                    }
-                
-                # Insert match
-                result = self.db.matches.insert_one(match_data)
-                round_matches.append(str(result.inserted_id))
-            
-            # Create placeholder matches for future rounds
-            for r in range(2, rounds + 1):
-                matches_in_round = 2 ** (rounds - r)
-                for i in range(matches_in_round):
-                    next_match = i // 2 if r < rounds else None
-                    
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': r,
-                        'bracket': 'single',
-                        'bracket_position': i,
-                        'player1_id': None,  # Will be determined by previous matches
-                        'player2_id': None,  # Will be determined by previous matches
-                        'player1_wins': 0,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'pending',
-                        'result': '',
-                        'next_match': next_match
-                    }
-                    
-                    # For the final round, there's no next match
-                    if r == rounds:
-                        match_data.pop('next_match', None)
-                    
-                    # Insert match
-                    result = self.db.matches.insert_one(match_data)
-                    round_matches.append(str(result.inserted_id))
-            
-            # Add third-place match if configured
-            if third_place_match:
-                match_data = {
-                    'tournament_id': tournament_id,
-                    'round': rounds,
-                    'bracket': 'single',
-                    'bracket_position': -1,  # Special position for third-place match
-                    'player1_id': None,  # Will be loser of one semifinal
-                    'player2_id': None,  # Will be loser of other semifinal
-                    'player1_wins': 0,
-                    'player2_wins': 0,
-                    'draws': 0,
-                    'status': 'pending',
-                    'result': '',
-                    'is_third_place_match': True
-                }
-                
-                result = self.db.matches.insert_one(match_data)
-                round_matches.append(str(result.inserted_id))
-            
-            # Create standings for all players
-            for player_id in player_ids:
-                self.db.standings.insert_one({
-                    'tournament_id': tournament_id,
-                    'player_id': player_id,
-                    'matches_played': 0,
-                    'match_points': 0,
-                    'game_points': 0,
-                    'match_win_percentage': 0.0,
-                    'game_win_percentage': 0.0,
-                    'opponents_match_win_percentage': 0.0,
-                    'opponents_game_win_percentage': 0.0,
-                    'active': True
-                })
-            
-            # Update tournament
-            self.db.tournaments.update_one(
-                {'_id': ObjectId(tournament_id)},
-                {
-                    '$set': {
-                        'rounds': rounds,
-                        'current_round': 1,
-                        'bracket_size': bracket_size,
-                        'status': 'active',
-                        'updated_at': datetime.utcnow().isoformat()
-                    },
-                    '$push': {'matches': {'$each': round_matches}}
-                }
-            )
-            
-            return True
-        except Exception as e:
-            print(f"Error creating single elimination bracket: {e}")
-            return False
-    
-    def _arrange_single_elim_seeds(self, player_ids, bracket_size, seeded=True):
-        """
-        Arrange players according to standard single elimination seeding.
-        
-        Args:
-            player_ids: List of player IDs (already sorted by seed if seeded=True)
-            bracket_size: Size of the bracket (power of 2)
-            seeded: Whether to use seeding or random arrangement
-        
-        Returns:
-            List of arranged player IDs with None for byes
-        """
-        if not seeded:
-            import random
-            # Shuffle players and fill the rest with byes
-            shuffled_ids = player_ids.copy()
-            random.shuffle(shuffled_ids)
-            return shuffled_ids + [None] * (bracket_size - len(player_ids))
-        
-        # Create the seeded bracket according to standard tournament seeding
-        result = [None] * bracket_size
-        player_count = len(player_ids)
-        
-        for seed in range(player_count):
-            # Calculate position in the bracket using the standard formula
-            position = self._get_seed_position(seed + 1, bracket_size)
-            result[position] = player_ids[seed]
-        
-        return result
-
-    def _get_seed_position(self, seed, bracket_size):
-        """
-        Calculate the position of a seed in a standard tournament bracket.
-        
-        Args:
-            seed: The seed number (1-indexed)
-            bracket_size: Size of the bracket (power of 2)
-        
-        Returns:
-            The position in the bracket (0-indexed)
-        """
-        # Standard algorithm for determining bracket position
-        round_size = bracket_size
-        position = seed - 1
-        
-        while round_size > 1:
-            round_size //= 2
-            position = round_size * (2 * (position // round_size) + 1) - position - 1
-        
-        return position
-    
-    def create_double_elimination_bracket(self, tournament_id, player_ids):
-        """Create a double elimination bracket."""
-        try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament:
-                return False
-            
-            # Get tournament structure config
-            structure_config = tournament.get('structure_config', {})
-            seeded = structure_config.get('seeded', True)
-            grand_finals_modifier = structure_config.get('grand_finals_modifier', 'none')
-            
-            # Ensure player_ids are strings
-            player_ids = [str(pid) if isinstance(pid, ObjectId) else pid for pid in player_ids]
-            
-            # Calculate number of rounds for the winners bracket
-            player_count = len(player_ids)
-            winners_rounds = (player_count - 1).bit_length()
-            
-            # Calculate the number of slots in the bracket (power of 2)
-            bracket_size = 2 ** winners_rounds
-            
-            # Arrange players according to seeding for winners bracket
-            arranged_players = self._arrange_single_elim_seeds(player_ids, bracket_size, seeded)
-            
-            # Track all match IDs
-            all_matches = []
-            
-            # Create winners bracket first round matches
-            winners_matches = {}  # Store by bracket position for later reference
-            for i in range(0, bracket_size, 2):
-                player1_idx = i
-                player2_idx = i + 1
-                
-                player1_id = arranged_players[player1_idx] if player1_idx < len(arranged_players) else None
-                player2_id = arranged_players[player2_idx] if player2_idx < len(arranged_players) else None
-                
-                # Skip creating matches for double byes
-                if player1_id is None and player2_id is None:
-                    continue
-                
-                # Handle byes
-                if player1_id is not None and player2_id is None:
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': 1,
-                        'bracket': 'winners',
-                        'bracket_position': i // 2,
-                        'player1_id': player1_id,
-                        'player2_id': None,  # BYE
-                        'player1_wins': 2,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'completed',
-                        'result': 'bye',
-                        'winners_next_match': i // 4,
-                        'losers_next_match': None
-                    }
-                elif player1_id is None and player2_id is not None:
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': 1,
-                        'bracket': 'winners',
-                        'bracket_position': i // 2,
-                        'player1_id': player2_id,  # Swap so the real player is player1
-                        'player2_id': None,  # BYE
-                        'player1_wins': 2,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'completed',
-                        'result': 'bye',
-                        'winners_next_match': i // 4,
-                        'losers_next_match': None
-                    }
-                else:
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': 1,
-                        'bracket': 'winners',
-                        'bracket_position': i // 2,
-                        'player1_id': player1_id,
-                        'player2_id': player2_id,
-                        'player1_wins': 0,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'pending',
-                        'result': '',
-                        'winners_next_match': i // 4,
-                        'losers_next_match': (i // 4) + (bracket_size // 4)  # Position in losers bracket
-                    }
-                
-                # Insert match
-                result = self.db.matches.insert_one(match_data)
-                match_id = str(result.inserted_id)
-                winners_matches[(1, i // 2)] = match_id
-                all_matches.append(match_id)
-            
-            # Create placeholder matches for future winners bracket rounds
-            for r in range(2, winners_rounds + 1):
-                matches_in_round = 2 ** (winners_rounds - r)
-                for i in range(matches_in_round):
-                    if r < winners_rounds:
-                        winners_next = i // 2
-                        losers_next = self._calculate_losers_position(r, i, bracket_size)
-                    else:
-                        winners_next = None
-                        losers_next = None  # Grand finals handled separately
-                    
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': r,
-                        'bracket': 'winners',
-                        'bracket_position': i,
-                        'player1_id': None,
-                        'player2_id': None,
-                        'player1_wins': 0,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'pending',
-                        'result': '',
-                        'winners_next_match': winners_next,
-                        'losers_next_match': losers_next
-                    }
-                    
-                    # Insert match
-                    result = self.db.matches.insert_one(match_data)
-                    match_id = str(result.inserted_id)
-                    winners_matches[(r, i)] = match_id
-                    all_matches.append(match_id)
-            
-            # Create losers bracket matches
-            losers_matches = {}
-            losers_rounds = winners_rounds * 2 - 1
-            
-            # Create all losers bracket rounds
-            for r in range(1, losers_rounds + 1):
-                # Determine number of matches in this round
-                if r % 2 == 1:  # Odd rounds: players coming from winners bracket
-                    matches_in_round = 2 ** (winners_rounds - (r // 2) - 2)
-                else:  # Even rounds: consolidation matches
-                    matches_in_round = 2 ** (winners_rounds - (r // 2) - 1)
-                
-                # No matches in this round
-                if matches_in_round <= 0:
-                    continue
-                
-                for i in range(matches_in_round):
-                    # Determine next match
-                    if r < losers_rounds:
-                        if r % 2 == 1:  # Odd rounds
-                            next_match = i + (matches_in_round // 2)
-                        else:  # Even rounds
-                            next_match = i // 2
-                    else:
-                        next_match = None  # Final round
-                    
-                    match_data = {
-                        'tournament_id': tournament_id,
-                        'round': r,
-                        'bracket': 'losers',
-                        'bracket_position': i,
-                        'player1_id': None,
-                        'player2_id': None,
-                        'player1_wins': 0,
-                        'player2_wins': 0,
-                        'draws': 0,
-                        'status': 'pending',
-                        'result': '',
-                        'winners_next_match': next_match,
-                        'losers_next_match': None  # No lower bracket in losers
-                    }
-                    
-                    # Insert match
-                    result = self.db.matches.insert_one(match_data)
-                    match_id = str(result.inserted_id)
-                    losers_matches[(r, i)] = match_id
-                    all_matches.append(match_id)
-            
-            # Create grand finals match(es)
-            grand_finals_data = {
-                'tournament_id': tournament_id,
-                'round': winners_rounds + 1,
-                'bracket': 'grand_finals',
-                'bracket_position': 0,
-                'player1_id': None,  # Winner of winners bracket
-                'player2_id': None,  # Winner of losers bracket
-                'player1_wins': 0,
-                'player2_wins': 0,
-                'draws': 0,
-                'status': 'pending',
-                'result': '',
-                'winners_next_match': None,
-                'losers_next_match': None
-            }
-            
-            # Insert grand finals match
-            result = self.db.matches.insert_one(grand_finals_data)
-            grand_finals_id = str(result.inserted_id)
-            all_matches.append(grand_finals_id)
-            
-            # Create reset bracket if needed
-            if grand_finals_modifier == 'reset':
-                reset_finals_data = {
-                    'tournament_id': tournament_id,
-                    'round': winners_rounds + 2,
-                    'bracket': 'grand_finals',
-                    'bracket_position': 1,
-                    'player1_id': None,
-                    'player2_id': None,
-                    'player1_wins': 0,
-                    'player2_wins': 0,
-                    'draws': 0,
-                    'status': 'pending',
-                    'result': '',
-                    'winners_next_match': None,
-                    'losers_next_match': None,
-                    'is_reset_match': True
-                }
-                
-                result = self.db.matches.insert_one(reset_finals_data)
-                all_matches.append(str(result.inserted_id))
-            
-            # Create standings for all players
-            for player_id in player_ids:
-                self.db.standings.insert_one({
-                    'tournament_id': tournament_id,
-                    'player_id': player_id,
-                    'matches_played': 0,
-                    'match_points': 0,
-                    'game_points': 0,
-                    'match_win_percentage': 0.0,
-                    'game_win_percentage': 0.0,
-                    'opponents_match_win_percentage': 0.0,
-                    'opponents_game_win_percentage': 0.0,
-                    'active': True
-                })
-            
-            # Update tournament
-            self.db.tournaments.update_one(
-                {'_id': ObjectId(tournament_id)},
-                {
-                    '$set': {
-                        'winners_rounds': winners_rounds,
-                        'losers_rounds': losers_rounds,
-                        'current_round': 1,
-                        'bracket_size': bracket_size,
-                        'status': 'active',
-                        'updated_at': datetime.utcnow().isoformat()
-                    },
-                    '$push': {'matches': {'$each': all_matches}}
-                }
-            )
-            
-            return True
-        except Exception as e:
-            print(f"Error creating double elimination bracket: {e}")
-            return False
-    
-    def _calculate_losers_position(self, winners_round, winners_position, bracket_size):
-        """Calculate corresponding position in losers bracket."""
-        # This is a simplification - actual mapping depends on bracket size and round
-        if winners_round == 2:
-            return winners_position + (bracket_size // 4)
+    def _calculate_rounds(self, player_count):
+        """Calculate recommended number of rounds based on player count."""
+        if player_count <= 8:
+            return 3
+        elif player_count <= 16:
+            return 4
+        elif player_count <= 32:
+            return 5
+        elif player_count <= 64:
+            return 6
+        elif player_count <= 128:
+            return 7
         else:
-            # For deeper rounds, the mapping gets more complex
-            # This would need a complete implementation based on standard DE brackets
-            return winners_position
+            return 8
     
     def end_tournament(self, tournament_id):
         """End a tournament."""
         try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament or tournament['status'] != 'active':
-                return False
-            
-            # Update tournament status
-            self.db.tournaments.update_one(
-                {'_id': ObjectId(tournament_id)},
-                {'$set': {
-                    'status': 'completed',
-                    'updated_at': datetime.utcnow().isoformat()
-                }}
-            )
-            
-            return True
-        except Exception as e:
-            print(f"Error ending tournament: {e}")
-            return False
-    
-    def advance_bracket(self, tournament_id, match_id, winner_id):
-        """Advance a player in a bracket after match is completed."""
-        try:
-            match = self.db.matches.find_one({'_id': ObjectId(match_id)})
-            if not match:
-                return False
-            
-            # Get tournament
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament:
-                return False
-            
-            # Check if it's a bracket tournament
-            structure = tournament.get('structure', '').lower()
-            if structure not in ['single_elimination', 'double_elimination']:
-                return False
-            
-            # For single elimination
-            if structure == 'single_elimination':
-                next_match_position = match.get('next_match')
-                if next_match_position is None:
-                    # This is the final match, no advancement needed
-                    return True
-                
-                # Find next match in bracket
-                next_match = self.db.matches.find_one({
-                    'tournament_id': tournament_id,
-                    'round': match['round'] + 1,
-                    'bracket_position': next_match_position
+            if self.db_type == 'mongodb':
+                # Check if tournament exists and is active
+                tournament = self.db.tournaments.find_one({
+                    '_id': ObjectId(tournament_id),
+                    'status': 'active'
                 })
                 
-                if not next_match:
+                if not tournament:
                     return False
                 
-                # Determine which player slot to fill
-                if match['bracket_position'] % 2 == 0:  # Even positions go to player1
-                    self.db.matches.update_one(
-                        {'_id': next_match['_id']},
-                        {'$set': {'player1_id': winner_id}}
-                    )
-                else:  # Odd positions go to player2
-                    self.db.matches.update_one(
-                        {'_id': next_match['_id']},
-                        {'$set': {'player2_id': winner_id}}
-                    )
+                # Update tournament
+                self.db.tournaments.update_one(
+                    {'_id': ObjectId(tournament_id)},
+                    {'$set': {'status': 'completed'}}
+                )
                 
-                # Handle third place match for semifinals
-                if match['round'] == tournament.get('rounds', 0) - 1:
-                    third_place_match = self.db.matches.find_one({
-                        'tournament_id': tournament_id,
-                        'is_third_place_match': True
-                    })
-                    
-                    if third_place_match:
-                        loser_id = match['player1_id'] if winner_id == match['player2_id'] else match['player2_id']
-                        
-                        if match['bracket_position'] % 2 == 0:
-                            self.db.matches.update_one(
-                                {'_id': third_place_match['_id']},
-                                {'$set': {'player1_id': loser_id}}
-                            )
-                        else:
-                            self.db.matches.update_one(
-                                {'_id': third_place_match['_id']},
-                                {'$set': {'player2_id': loser_id}}
-                            )
-            
-            # For double elimination
-            elif structure == 'double_elimination':
-                # Handle winners bracket
-                if match['bracket'] == 'winners':
-                    winners_next = match.get('winners_next_match')
-                    losers_next = match.get('losers_next_match')
-                    
-                    # Winner advances in winners bracket
-                    if winners_next is not None:
-                        next_match = self.db.matches.find_one({
-                            'tournament_id': tournament_id,
-                            'round': match['round'] + 1,
-                            'bracket': 'winners',
-                            'bracket_position': winners_next
-                        })
-                        
-                        if next_match:
-                            if match['bracket_position'] % 2 == 0:
-                                self.db.matches.update_one(
-                                    {'_id': next_match['_id']},
-                                    {'$set': {'player1_id': winner_id}}
-                                )
-                            else:
-                                self.db.matches.update_one(
-                                    {'_id': next_match['_id']},
-                                    {'$set': {'player2_id': winner_id}}
-                                )
-                    
-                    # Loser goes to losers bracket
-                    if losers_next is not None:
-                        loser_id = match['player1_id'] if winner_id == match['player2_id'] else match['player2_id']
-                        
-                        losers_match = self.db.matches.find_one({
-                            'tournament_id': tournament_id,
-                            'bracket': 'losers',
-                            'bracket_position': losers_next
-                        })
-                        
-                        if losers_match:
-                            if losers_match.get('player1_id') is None:
-                                self.db.matches.update_one(
-                                    {'_id': losers_match['_id']},
-                                    {'$set': {'player1_id': loser_id}}
-                                )
-                            else:
-                                self.db.matches.update_one(
-                                    {'_id': losers_match['_id']},
-                                    {'$set': {'player2_id': loser_id}}
-                                )
-                
-                # Handle losers bracket advancement
-                elif match['bracket'] == 'losers':
-                    winners_next = match.get('winners_next_match')
-                    
-                    if winners_next is not None:
-                        next_match = self.db.matches.find_one({
-                            'tournament_id': tournament_id,
-                            'bracket': 'losers',
-                            'bracket_position': winners_next
-                        })
-                        
-                        if next_match:
-                            if next_match.get('player1_id') is None:
-                                self.db.matches.update_one(
-                                    {'_id': next_match['_id']},
-                                    {'$set': {'player1_id': winner_id}}
-                                )
-                            else:
-                                self.db.matches.update_one(
-                                    {'_id': next_match['_id']},
-                                    {'$set': {'player2_id': winner_id}}
-                                )
-                    
-                    # Handle advancement to grand finals
-                    elif match['round'] == tournament.get('losers_rounds', 0):
-                        grand_finals = self.db.matches.find_one({
-                            'tournament_id': tournament_id,
-                            'bracket': 'grand_finals',
-                            'bracket_position': 0
-                        })
-                        
-                        if grand_finals:
-                            self.db.matches.update_one(
-                                {'_id': grand_finals['_id']},
-                                {'$set': {'player2_id': winner_id}}
-                            )
-            
-            return True
-        except Exception as e:
-            print(f"Error advancing bracket: {e}")
-            return False
-        
-    def _calculate_losers_round(self, winners_round):
-        """Calculate the corresponding losers bracket round."""
-        # This is a simplification - actual mapping can be more complex
-        # depending on the tournament structure
-        losers_round = winners_round * 2 - 1
-        return losers_round
-    
-    def update_match_result(self, match_id, result_data):
-        """Update match result and advance players in brackets if needed."""
-        try:
-            match = self.db.matches.find_one({'_id': ObjectId(match_id)})
-            if not match or match['status'] == 'completed':
-                return False
-            
-            # Extract result data
-            player1_wins = result_data.get('player1_wins', 0)
-            player2_wins = result_data.get('player2_wins', 0)
-            draws = result_data.get('draws', 0)
-            
-            # Validate result
-            if player1_wins < 0 or player2_wins < 0 or draws < 0:
-                return False
-            
-            # Determine result
-            if player1_wins > player2_wins:
-                result = 'win'
-                match_points_player1 = 3  # Win = 3 points
-                match_points_player2 = 0
-                winner_id = match['player1_id']
-            elif player2_wins > player1_wins:
-                result = 'loss'
-                match_points_player1 = 0
-                match_points_player2 = 3
-                winner_id = match['player2_id']
+                return True
             else:
-                result = 'draw'
-                match_points_player1 = 1  # Draw = 1 point
-                match_points_player2 = 1
-                winner_id = None
-            
-            # Update match
-            self.db.matches.update_one(
-                {'_id': ObjectId(match_id)},
-                {'$set': {
-                    'player1_wins': player1_wins,
-                    'player2_wins': player2_wins,
-                    'draws': draws,
-                    'result': result,
-                    'status': 'completed',
-                    'end_time': datetime.utcnow().isoformat()
-                }}
-            )
-            
-            # Get tournament
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(match['tournament_id'])})
-            if not tournament:
-                return False
-            
-            # Update standings for player 1
-            self.db.standings.update_one(
-                {'tournament_id': match['tournament_id'], 'player_id': match['player1_id']},
-                {'$inc': {
-                    'matches_played': 1,
-                    'match_points': match_points_player1,
-                    'game_points': player1_wins
-                }}
-            )
-            
-            # Update standings for player 2 (if not a bye)
-            if match.get('player2_id'):
-                self.db.standings.update_one(
-                    {'tournament_id': match['tournament_id'], 'player_id': match['player2_id']},
-                    {'$inc': {
-                        'matches_played': 1,
-                        'match_points': match_points_player2,
-                        'game_points': player2_wins
-                    }}
-                )
-            
-            # Update win percentages for all players in the tournament
-            self._update_win_percentages(match['tournament_id'])
-            
-            # For bracket tournaments, advance the winner to the next round
-            structure = tournament.get('structure', '').lower()
-            if structure in ['single_elimination', 'double_elimination'] and winner_id:
-                self.advance_bracket(match['tournament_id'], match_id, winner_id)
-            
-            return True
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    UPDATE tournaments
+                    SET status = 'completed'
+                    WHERE id = :tournament_id AND status = 'active'
+                """), {'tournament_id': int(tournament_id)})
+                
+                self.db.commit()
+                return result.rowcount > 0
         except Exception as e:
-            print(f"Error updating match result: {e}")
+            print(f"Error ending tournament: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
-    
-    def draw_match(self, match_id):
-        """Mark a match as intentional draw."""
-        try:
-            match = self.db.matches.find_one({'_id': ObjectId(match_id)})
-            if not match or match['status'] == 'completed' or not match.get('player2_id'):
-                return False
-            
-            # Update match
-            self.db.matches.update_one(
-                {'_id': ObjectId(match_id)},
-                {'$set': {
-                    'player1_wins': 0,
-                    'player2_wins': 0,
-                    'draws': 1,
-                    'result': 'draw',
-                    'status': 'completed',
-                    'end_time': datetime.utcnow().isoformat()
-                }}
-            )
-            
-            # Update standings for both players
-            for player_id in [match['player1_id'], match['player2_id']]:
-                self.db.standings.update_one(
-                    {'tournament_id': match['tournament_id'], 'player_id': player_id},
-                    {'$inc': {
-                        'matches_played': 1,
-                        'match_points': 1,  # Draw = 1 point
-                        'game_points': 0
-                    }}
-                )
-            
-            # Update win percentages
-            self._update_win_percentages(match['tournament_id'])
-            
-            return True
-        except Exception as e:
-            print(f"Error marking match as draw: {e}")
-            return False
-    
-    def _update_win_percentages(self, tournament_id):
-        """Update win percentages for all players in a tournament."""
-        try:
-            # Get all players in the tournament
-            standings = list(self.db.standings.find({'tournament_id': tournament_id}))
-            
-            # Calculate match win percentage for each player
-            for standing in standings:
-                player_id = standing['player_id']
-                matches_played = standing['matches_played']
-                
-                if matches_played > 0:
-                    match_win_percentage = standing['match_points'] / (matches_played * 3)
-                    game_win_percentage = 0
-                    
-                    # Calculate game win percentage
-                    matches = list(self.db.matches.find({
-                        'tournament_id': tournament_id,
-                        '$or': [
-                            {'player1_id': player_id},
-                            {'player2_id': player_id}
-                        ],
-                        'status': 'completed'
-                    }))
-                    
-                    total_games = 0
-                    games_won = 0
-                    
-                    for match in matches:
-                        if match['player1_id'] == player_id:
-                            games_won += match['player1_wins']
-                            total_games += match['player1_wins'] + match['player2_wins'] + match['draws']
-                        else:
-                            games_won += match['player2_wins']
-                            total_games += match['player1_wins'] + match['player2_wins'] + match['draws']
-                    
-                    if total_games > 0:
-                        game_win_percentage = games_won / total_games
-                    
-                    # Update standing
-                    self.db.standings.update_one(
-                        {'_id': standing['_id']},
-                        {'$set': {
-                            'match_win_percentage': match_win_percentage,
-                            'game_win_percentage': game_win_percentage
-                        }}
-                    )
-            
-            # Calculate opponents' win percentages
-            for standing in standings:
-                player_id = standing['player_id']
-                
-                # Get all opponents
-                matches = list(self.db.matches.find({
-                    'tournament_id': tournament_id,
-                    '$or': [
-                        {'player1_id': player_id},
-                        {'player2_id': player_id}
-                    ],
-                    'status': 'completed'
-                }))
-                
-                opponent_ids = []
-                for match in matches:
-                    if match['player1_id'] == player_id and match.get('player2_id'):
-                        opponent_ids.append(match['player2_id'])
-                    elif match['player2_id'] == player_id:
-                        opponent_ids.append(match['player1_id'])
-                
-                # Get opponents' standings
-                opponent_standings = list(self.db.standings.find({
-                    'tournament_id': tournament_id,
-                    'player_id': {'$in': opponent_ids}
-                }))
-                
-                # Calculate opponents' match win percentage
-                if opponent_standings:
-                    omw = sum(s['match_win_percentage'] for s in opponent_standings) / len(opponent_standings)
-                    ogw = sum(s['game_win_percentage'] for s in opponent_standings) / len(opponent_standings)
-                    
-                    # Update standing
-                    self.db.standings.update_one(
-                        {'_id': standing['_id']},
-                        {'$set': {
-                            'opponents_match_win_percentage': omw,
-                            'opponents_game_win_percentage': ogw
-                        }}
-                    )
-            
-            return True
-        except Exception as e:
-            print(f"Error updating win percentages: {e}")
-            return False
-    
-    def generate_pairings_report(self, tournament_id, round_number=None):
-        """Generate a pairings report for printing."""
-        try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament:
-                return None
-            
-            # If round_number is not specified, use current round
-            if round_number is None:
-                round_number = tournament.get('current_round', 1)
-            
-            # Get pairings
-            pairings = self.get_round_pairings(tournament_id, round_number)
-            
-            # Format for report
-            report = {
-                'tournament_name': tournament['name'],
-                'round': round_number,
-                'date': tournament['date'],
-                'format': tournament['format'],
-                'pairings': pairings
-            }
-            
-            return report
-        except Exception as e:
-            print(f"Error generating pairings report: {e}")
-            return None
-    
-    def generate_standings_report(self, tournament_id):
-        """Generate a standings report for printing."""
-        try:
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(tournament_id)})
-            if not tournament:
-                return None
-            
-            # Get standings
-            standings = self.get_tournament_standings(tournament_id)
-            
-            # Format for report
-            report = {
-                'tournament_name': tournament['name'],
-                'date': tournament['date'],
-                'format': tournament['format'],
-                'status': tournament['status'],
-                'current_round': tournament['current_round'],
-                'total_rounds': tournament['rounds'],
-                'standings': standings
-            }
-            
-            return report
-        except Exception as e:
-            print(f"Error generating standings report: {e}")
-            return None

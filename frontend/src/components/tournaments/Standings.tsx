@@ -1,9 +1,9 @@
+// src/components/tournaments/Standings.tsx
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Button, Badge, Spinner, Form, Row, Col } from 'react-bootstrap';
+import { Card, Table, Button, Badge, Spinner, Form, Row, Col, Alert } from 'react-bootstrap';
 import { Link, useParams } from 'react-router-dom';
-
-// Add missing Alert import
-import { Alert } from 'react-bootstrap';
+import TournamentService from '../../services/tournamentService';
+import { Standing as StandingType } from '../../types';
 
 interface StandingsProps {}
 
@@ -38,7 +38,7 @@ const Standings: React.FC<StandingsProps> = () => {
         
         // Fetch standings
         const standingsData = await TournamentService.getStandings(id!);
-        setStandings(standingsData);
+        setStandings(standingsData as unknown as Standing[]);
       } catch (err) {
         console.error("Error fetching standings:", err);
         setError("Failed to load standings");

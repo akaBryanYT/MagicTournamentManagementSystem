@@ -97,7 +97,7 @@ const DeckCreate: React.FC = () => {
       const activeTournaments = (response.tournaments || []).filter(
         (t: any) => t.status === 'active' || t.status === 'planned'
       );
-      setTournaments(activeTournaments);
+      setTournaments(activeTournaments as unknown as Tournament[]);
     } catch (err) {
       console.error('Error fetching tournaments:', err);
       setError('Failed to load tournaments');

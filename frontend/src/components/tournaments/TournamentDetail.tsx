@@ -6,6 +6,7 @@ import PlayerService from '../../services/playerService';
 import DeckService from '../../services/deckService';
 import MatchService from '../../services/matchService';
 import BracketView from './BracketView';
+import { Player } from '../../types';
 
 interface Tournament {
   id: string;
@@ -32,13 +33,6 @@ interface Tournament {
     game_win_percentage: boolean;
     opponents_game_win_percentage: boolean;
   };
-}
-
-interface Player {
-  id: string;
-  name: string;
-  email: string;
-  active: boolean;
 }
 
 interface Match {
@@ -127,7 +121,7 @@ const TournamentDetail: React.FC = () => {
       
       // Fetch tournament details
       const tournamentData = await TournamentService.getTournamentById(id!);
-      setTournament(tournamentData);
+      setTournament(tournamentData as unknown as Tournament);
       
       // Fetch tournament players
       const playersData = await TournamentService.getTournamentPlayers(id!);
@@ -136,7 +130,7 @@ const TournamentDetail: React.FC = () => {
       // Fetch current round matches
       if (tournamentData.status === 'active' && tournamentData.current_round > 0) {
         const matchesData = await TournamentService.getRoundPairings(id!, tournamentData.current_round);
-        setMatches(matchesData);
+        setMatches(matchesData as unknown as Match[]);
       }
       
       // Fetch standings
@@ -165,8 +159,8 @@ const TournamentDetail: React.FC = () => {
       const allPlayers = allPlayersResult.players || [];
       
       // Filter out players already in the tournament
-      const registeredPlayerIds = new Set(players.map(p => p.id));
-      const available = allPlayers.filter(p => !registeredPlayerIds.has(p.id));
+      const registeredPlayerIds = new Set(players.map((p: Player) => p.id));
+      const available = allPlayers.filter((p: Player) => !registeredPlayerIds.has(p.id));
       
       setAvailablePlayers(available);
     } catch (err) {
@@ -710,7 +704,7 @@ const TournamentDetail: React.FC = () => {
                   </tr>
                   <tr>
                     <th>Time Limit</th>
-                    <td>{tournament.time_limit} minutes</td>
+                    <td>{tournament.time_limit || 'Not specified'} minutes</td>
                   </tr>
                 </tbody>
               </Table>
@@ -1158,7 +1152,7 @@ const TournamentDetail: React.FC = () => {
             <Card>
               <Card.Body>
                 <h5 className="mb-3">Winners Bracket</h5>
-                <BracketView tournamentId={id!} bracketType="double" />
+                <BracketView tournamentId={id!} bracketType="winners" />
                 
                 <h5 className="mt-4 mb-3">Losers Bracket</h5>
                 <BracketView tournamentId={id!} bracketType="losers" />

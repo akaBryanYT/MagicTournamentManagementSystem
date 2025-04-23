@@ -1,9 +1,9 @@
+// src/components/tournaments/Pairings.tsx
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Button, Badge, Spinner, Form, Row, Col } from 'react-bootstrap';
+import { Card, Table, Button, Badge, Spinner, Form, Row, Col, Alert } from 'react-bootstrap';
 import { Link, useParams } from 'react-router-dom';
-
-// Add missing Alert import
-import { Alert } from 'react-bootstrap';
+import TournamentService from '../../services/tournamentService';
+import { Match } from '../../types';
 
 interface PairingsProps {}
 
@@ -40,7 +40,7 @@ const Pairings: React.FC<PairingsProps> = () => {
         
         // Fetch pairings for the current round
         const pairingsData = await TournamentService.getRoundPairings(id!, tournamentData.current_round);
-        setPairings(pairingsData);
+        setPairings(pairingsData as unknown as Pairing[]);
       } catch (err) {
         console.error("Error fetching pairings:", err);
         setError("Failed to load pairings");

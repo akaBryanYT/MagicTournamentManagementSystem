@@ -5,6 +5,8 @@ Deck service for the Tournament Management System.
 from datetime import datetime
 from bson.objectid import ObjectId
 from app.models.database import DatabaseConfig
+from sqlalchemy import text
+import json
 
 class DeckService:
     """Service for deck operations."""
@@ -14,428 +16,512 @@ class DeckService:
         self.db_config = DatabaseConfig()
         self.db_config.connect()
         self.db = self.db_config.db
+        self.db_type = self.db_config.db_type
     
     def get_all_decks(self):
         """Get all decks."""
-        decks = list(self.db.decks.find({}, {
-            '_id': 1, 
-            'name': 1, 
-            'player_id': 1, 
-            'tournament_id': 1,
-            'format': 1,
-            'validation_status': 1
-        }))
-        
-        for deck in decks:
-            deck['id'] = str(deck.pop('_id'))
-        
-        return decks
+        try:
+            if self.db_type == 'mongodb':
+                decks = list(self.db.decks.find({}, {
+                    '_id': 1, 
+                    'name': 1, 
+                    'player_id': 1, 
+                    'tournament_id': 1,
+                    'format': 1,
+                    'validation_status': 1
+                }))
+                
+                for deck in decks:
+                    deck['id'] = str(deck.pop('_id'))
+                
+                return decks
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    SELECT d.id, d.name, d.player_id, d.tournament_id,
+                           d.format, d.validation_status, p.name as player_name
+                    FROM decks d
+                    JOIN players p ON d.player_id = p.id
+                """))
+                
+                decks = []
+                for row in result.mappings():
+                    deck = dict(row)
+                    deck['id'] = str(deck['id'])
+                    deck['player_id'] = str(deck['player_id'])
+                    deck['tournament_id'] = str(deck['tournament_id'])
+                    decks.append(deck)
+                
+                return decks
+        except Exception as e:
+            print(f"Error getting decks: {e}")
+            return []
     
     def get_decks_by_player(self, player_id):
         """Get decks for a player."""
-        decks = list(self.db.decks.find({'player_id': player_id}, {
-            '_id': 1, 
-            'name': 1, 
-            'tournament_id': 1,
-            'format': 1,
-            'validation_status': 1
-        }))
-        
-        for deck in decks:
-            deck['id'] = str(deck.pop('_id'))
-        
-        return decks
+        try:
+            if self.db_type == 'mongodb':
+                decks = list(self.db.decks.find({'player_id': player_id}, {
+                    '_id': 1, 
+                    'name': 1, 
+                    'tournament_id': 1,
+                    'format': 1,
+                    'validation_status': 1
+                }))
+                
+                for deck in decks:
+                    deck['id'] = str(deck.pop('_id'))
+                
+                return decks
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    SELECT d.id, d.name, d.tournament_id, d.format, d.validation_status,
+                           t.name as tournament_name
+                    FROM decks d
+                    JOIN tournaments t ON d.tournament_id = t.id
+                    WHERE d.player_id = :player_id
+                """), {'player_id': int(player_id)})
+                
+                decks = []
+                for row in result.mappings():
+                    deck = dict(row)
+                    deck['id'] = str(deck['id'])
+                    deck['tournament_id'] = str(deck['tournament_id'])
+                    decks.append(deck)
+                
+                return decks
+        except Exception as e:
+            print(f"Error getting player decks: {e}")
+            return []
     
     def get_decks_by_tournament(self, tournament_id):
         """Get decks for a tournament."""
-        decks = list(self.db.decks.find({'tournament_id': tournament_id}, {
-            '_id': 1, 
-            'name': 1, 
-            'player_id': 1,
-            'format': 1,
-            'validation_status': 1
-        }))
-        
-        for deck in decks:
-            deck['id'] = str(deck.pop('_id'))
-            
-            # Get player name
-            player = self.db.players.find_one({'_id': ObjectId(deck['player_id'])})
-            deck['player_name'] = player['name'] if player else 'Unknown'
-        
-        return decks
+        try:
+            if self.db_type == 'mongodb':
+                decks = list(self.db.decks.find({'tournament_id': tournament_id}, {
+                    '_id': 1, 
+                    'name': 1, 
+                    'player_id': 1,
+                    'format': 1,
+                    'validation_status': 1
+                }))
+                
+                for deck in decks:
+                    deck['id'] = str(deck.pop('_id'))
+                    
+                    # Get player name
+                    player = self.db.players.find_one({'_id': ObjectId(deck['player_id'])})
+                    deck['player_name'] = player['name'] if player else 'Unknown'
+                
+                return decks
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    SELECT d.id, d.name, d.player_id, d.format, d.validation_status,
+                           p.name as player_name
+                    FROM decks d
+                    JOIN players p ON d.player_id = p.id
+                    WHERE d.tournament_id = :tournament_id
+                """), {'tournament_id': int(tournament_id)})
+                
+                decks = []
+                for row in result.mappings():
+                    deck = dict(row)
+                    deck['id'] = str(deck['id'])
+                    deck['player_id'] = str(deck['player_id'])
+                    decks.append(deck)
+                
+                return decks
+        except Exception as e:
+            print(f"Error getting tournament decks: {e}")
+            return []
     
     def get_decks_by_player_and_tournament(self, player_id, tournament_id):
         """Get decks for a player in a tournament."""
-        decks = list(self.db.decks.find({
-            'player_id': player_id,
-            'tournament_id': tournament_id
-        }))
-        
-        for deck in decks:
-            deck['id'] = str(deck.pop('_id'))
-        
-        return decks
+        try:
+            if self.db_type == 'mongodb':
+                decks = list(self.db.decks.find({
+                    'player_id': player_id,
+                    'tournament_id': tournament_id
+                }))
+                
+                for deck in decks:
+                    deck['id'] = str(deck.pop('_id'))
+                
+                return decks
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    SELECT d.*
+                    FROM decks d
+                    WHERE d.player_id = :player_id AND d.tournament_id = :tournament_id
+                """), {
+                    'player_id': int(player_id),
+                    'tournament_id': int(tournament_id)
+                })
+                
+                decks = []
+                for row in result.mappings():
+                    deck = dict(row)
+                    deck['id'] = str(deck['id'])
+                    deck['player_id'] = str(deck['player_id'])
+                    deck['tournament_id'] = str(deck['tournament_id'])
+                    
+                    # Convert JSON fields
+                    if deck.get('validation_errors'):
+                        deck['validation_errors'] = json.loads(deck['validation_errors'])
+                    
+                    # Get deck cards
+                    deck_cards = self._get_deck_cards_sql(deck['id'])
+                    deck['main_deck'] = [c for c in deck_cards if not c['is_sideboard']]
+                    deck['sideboard'] = [c for c in deck_cards if c['is_sideboard']]
+                    
+                    decks.append(deck)
+                
+                return decks
+        except Exception as e:
+            print(f"Error getting player tournament decks: {e}")
+            return []
     
     def get_deck_by_id(self, deck_id):
         """Get deck by ID."""
         try:
-            deck = self.db.decks.find_one({'_id': ObjectId(deck_id)})
-            if deck:
-                deck['id'] = str(deck.pop('_id'))
-                return deck
-            return None
+            if self.db_type == 'mongodb':
+                deck = self.db.decks.find_one({'_id': ObjectId(deck_id)})
+                if deck:
+                    deck['id'] = str(deck.pop('_id'))
+                    return deck
+                return None
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    SELECT d.*, p.name as player_name, t.name as tournament_name
+                    FROM decks d
+                    JOIN players p ON d.player_id = p.id
+                    JOIN tournaments t ON d.tournament_id = t.id
+                    WHERE d.id = :deck_id
+                """), {'deck_id': int(deck_id)})
+                
+                row = result.mappings().first()
+                if row:
+                    deck = dict(row)
+                    deck['id'] = str(deck['id'])
+                    deck['player_id'] = str(deck['player_id'])
+                    deck['tournament_id'] = str(deck['tournament_id'])
+                    
+                    # Convert timestamps to ISO format
+                    if deck.get('created_at'):
+                        deck['created_at'] = deck['created_at'].isoformat()
+                    if deck.get('updated_at'):
+                        deck['updated_at'] = deck['updated_at'].isoformat()
+                    
+                    # Convert JSON fields
+                    if deck.get('validation_errors'):
+                        deck['validation_errors'] = json.loads(deck['validation_errors'])
+                    
+                    # Get deck cards
+                    deck_cards = self._get_deck_cards_sql(deck['id'])
+                    deck['main_deck'] = [c for c in deck_cards if not c['is_sideboard']]
+                    deck['sideboard'] = [c for c in deck_cards if c['is_sideboard']]
+                    
+                    return deck
+                return None
         except Exception as e:
             print(f"Error getting deck: {e}")
             return None
     
+    def _get_deck_cards_sql(self, deck_id):
+        """Get cards for a deck (PostgreSQL)."""
+        try:
+            result = self.db.execute(text("""
+                SELECT dc.quantity, dc.is_sideboard, c.name
+                FROM deck_cards dc
+                JOIN cards c ON dc.card_id = c.id
+                WHERE dc.deck_id = :deck_id
+            """), {'deck_id': int(deck_id)})
+            
+            cards = []
+            for row in result:
+                quantity, is_sideboard, name = row
+                cards.append({
+                    'quantity': quantity,
+                    'name': name,
+                    'is_sideboard': is_sideboard
+                })
+            
+            return cards
+        except Exception as e:
+            print(f"Error getting deck cards: {e}")
+            return []
+    
     def create_deck(self, deck_data):
         """Create a new deck."""
         try:
-            # Validate player exists
-            player = self.db.players.find_one({'_id': ObjectId(deck_data['player_id'])})
-            if not player:
-                return None
-            
-            # Validate tournament exists
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(deck_data['tournament_id'])})
-            if not tournament:
-                return None
-            
-            # Add timestamps
-            deck_data['created_at'] = datetime.utcnow().isoformat()
-            deck_data['updated_at'] = datetime.utcnow().isoformat()
-            
-            # Set default validation status
-            if 'validation_status' not in deck_data:
-                deck_data['validation_status'] = 'pending'
-            
-            # Set default name if not provided
-            if 'name' not in deck_data:
-                deck_data['name'] = f"{player['name']}'s Deck"
-            
-            # Insert deck
-            result = self.db.decks.insert_one(deck_data)
-            return str(result.inserted_id)
+            if self.db_type == 'mongodb':
+                # Validate player exists
+                player = self.db.players.find_one({'_id': ObjectId(deck_data['player_id'])})
+                if not player:
+                    return None
+                
+                # Validate tournament exists
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(deck_data['tournament_id'])})
+                if not tournament:
+                    return None
+                
+                # Add timestamps
+                deck_data['created_at'] = datetime.utcnow().isoformat()
+                deck_data['updated_at'] = datetime.utcnow().isoformat()
+                
+                # Set default validation status
+                if 'validation_status' not in deck_data:
+                    deck_data['validation_status'] = 'pending'
+                
+                # Set default name if not provided
+                if 'name' not in deck_data:
+                    deck_data['name'] = f"{player['name']}'s Deck"
+                
+                # Insert deck
+                result = self.db.decks.insert_one(deck_data)
+                return str(result.inserted_id)
+            else:
+                # PostgreSQL implementation
+                # Validate player exists
+                player_result = self.db.execute(text("""
+                    SELECT name FROM players WHERE id = :player_id
+                """), {'player_id': int(deck_data['player_id'])})
+                
+                player = player_result.first()
+                if not player:
+                    return None
+                
+                # Validate tournament exists
+                tournament_result = self.db.execute(text("""
+                    SELECT id FROM tournaments WHERE id = :tournament_id
+                """), {'tournament_id': int(deck_data['tournament_id'])})
+                
+                if not tournament_result.first():
+                    return None
+                
+                # Set default name if not provided
+                if 'name' not in deck_data or not deck_data['name']:
+                    deck_data['name'] = f"{player[0]}'s Deck"
+                
+                # Set default validation status
+                validation_status = deck_data.get('validation_status', 'pending')
+                
+                # Convert validation errors to JSON if provided
+                validation_errors = None
+                if 'validation_errors' in deck_data and deck_data['validation_errors']:
+                    validation_errors = json.dumps(deck_data['validation_errors'])
+                
+                # Insert deck
+                result = self.db.execute(text("""
+                    INSERT INTO decks (
+                        name, player_id, tournament_id, format,
+                        created_at, updated_at, validation_status, validation_errors
+                    ) VALUES (
+                        :name, :player_id, :tournament_id, :format,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :validation_status, :validation_errors
+                    ) RETURNING id
+                """), {
+                    'name': deck_data['name'],
+                    'player_id': int(deck_data['player_id']),
+                    'tournament_id': int(deck_data['tournament_id']),
+                    'format': deck_data.get('format', 'unknown'),
+                    'validation_status': validation_status,
+                    'validation_errors': validation_errors
+                })
+                
+                deck_id = result.scalar()
+                
+                # Insert deck cards
+                if 'main_deck' in deck_data and deck_data['main_deck']:
+                    self._insert_deck_cards_sql(deck_id, deck_data['main_deck'], False)
+                
+                if 'sideboard' in deck_data and deck_data['sideboard']:
+                    self._insert_deck_cards_sql(deck_id, deck_data['sideboard'], True)
+                
+                self.db.commit()
+                return str(deck_id)
         except Exception as e:
             print(f"Error creating deck: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return None
+    
+    def _insert_deck_cards_sql(self, deck_id, cards, is_sideboard):
+        """Insert cards for a deck (PostgreSQL)."""
+        try:
+            for card in cards:
+                # Get or create card
+                card_result = self.db.execute(text("""
+                    SELECT id FROM cards WHERE name = :name
+                """), {'name': card['name']})
+                
+                card_row = card_result.first()
+                if card_row:
+                    card_id = card_row[0]
+                else:
+                    # Card doesn't exist, create a minimal record
+                    new_card_result = self.db.execute(text("""
+                        INSERT INTO cards (name, type_line)
+                        VALUES (:name, 'Unknown')
+                        RETURNING id
+                    """), {'name': card['name']})
+                    
+                    card_id = new_card_result.scalar()
+                
+                # Insert deck card
+                self.db.execute(text("""
+                    INSERT INTO deck_cards (deck_id, card_id, quantity, is_sideboard)
+                    VALUES (:deck_id, :card_id, :quantity, :is_sideboard)
+                """), {
+                    'deck_id': deck_id,
+                    'card_id': card_id,
+                    'quantity': card['quantity'],
+                    'is_sideboard': is_sideboard
+                })
+        except Exception as e:
+            print(f"Error inserting deck cards: {e}")
+            raise
     
     def update_deck(self, deck_id, deck_data):
         """Update deck by ID."""
         try:
-            # Get current deck
-            current_deck = self.db.decks.find_one({'_id': ObjectId(deck_id)})
-            if not current_deck:
-                return False
-            
-            # Remove fields that shouldn't be updated
-            protected_fields = ['created_at', 'player_id', 'tournament_id']
-            for field in protected_fields:
-                if field in deck_data:
-                    del deck_data[field]
-            
-            # Add updated timestamp
-            deck_data['updated_at'] = datetime.utcnow().isoformat()
-            
-            # Update deck
-            result = self.db.decks.update_one(
-                {'_id': ObjectId(deck_id)},
-                {'$set': deck_data}
-            )
-            
-            return result.modified_count > 0
+            if self.db_type == 'mongodb':
+                # Get current deck
+                current_deck = self.db.decks.find_one({'_id': ObjectId(deck_id)})
+                if not current_deck:
+                    return False
+                
+                # Remove fields that shouldn't be updated
+                protected_fields = ['created_at', 'player_id', 'tournament_id']
+                for field in protected_fields:
+                    if field in deck_data:
+                        del deck_data[field]
+                
+                # Add updated timestamp
+                deck_data['updated_at'] = datetime.utcnow().isoformat()
+                
+                # Update deck
+                result = self.db.decks.update_one(
+                    {'_id': ObjectId(deck_id)},
+                    {'$set': deck_data}
+                )
+                
+                return result.modified_count > 0
+            else:
+                # PostgreSQL implementation
+                # Get current deck
+                deck_result = self.db.execute(text("""
+                    SELECT id FROM decks WHERE id = :deck_id
+                """), {'deck_id': int(deck_id)})
+                
+                if not deck_result.first():
+                    return False
+                
+                # Remove fields that shouldn't be updated
+                protected_fields = ['created_at', 'player_id', 'tournament_id']
+                update_data = {k: v for k, v in deck_data.items() if k not in protected_fields}
+                
+                if not update_data:
+                    return False
+                
+                # Handle JSON fields
+                if 'validation_errors' in update_data and update_data['validation_errors'] is not None:
+                    update_data['validation_errors'] = json.dumps(update_data['validation_errors'])
+                
+                # Build set clause
+                set_clauses = []
+                params = {'deck_id': int(deck_id)}
+                
+                for key, value in update_data.items():
+                    set_clauses.append(f"{key} = :{key}")
+                    params[key] = value
+                
+                # Add updated timestamp
+                set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+                
+                query = f"""
+                    UPDATE decks
+                    SET {', '.join(set_clauses)}
+                    WHERE id = :deck_id
+                """
+                
+                result = self.db.execute(text(query), params)
+                
+                # Update deck cards if provided
+                if 'main_deck' in deck_data or 'sideboard' in deck_data:
+                    # Delete existing cards
+                    self.db.execute(text("""
+                        DELETE FROM deck_cards WHERE deck_id = :deck_id
+                    """), {'deck_id': int(deck_id)})
+                    
+                    # Insert new cards
+                    if 'main_deck' in deck_data and deck_data['main_deck']:
+                        self._insert_deck_cards_sql(int(deck_id), deck_data['main_deck'], False)
+                    
+                    if 'sideboard' in deck_data and deck_data['sideboard']:
+                        self._insert_deck_cards_sql(int(deck_id), deck_data['sideboard'], True)
+                
+                self.db.commit()
+                return result.rowcount > 0
         except Exception as e:
             print(f"Error updating deck: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
     
     def delete_deck(self, deck_id):
         """Delete deck by ID."""
         try:
-            # Get deck
-            deck = self.db.decks.find_one({'_id': ObjectId(deck_id)})
-            if not deck:
-                return False
-            
-            # Check if tournament is active
-            tournament = self.db.tournaments.find_one({'_id': ObjectId(deck['tournament_id'])})
-            if tournament and tournament['status'] == 'active':
-                return False
-            
-            # Delete deck
-            result = self.db.decks.delete_one({'_id': ObjectId(deck_id)})
-            return result.deleted_count > 0
+            if self.db_type == 'mongodb':
+                # Get deck
+                deck = self.db.decks.find_one({'_id': ObjectId(deck_id)})
+                if not deck:
+                    return False
+                
+                # Check if tournament is active
+                tournament = self.db.tournaments.find_one({'_id': ObjectId(deck['tournament_id'])})
+                if tournament and tournament['status'] == 'active':
+                    return False
+                
+                # Delete deck
+                result = self.db.decks.delete_one({'_id': ObjectId(deck_id)})
+                return result.deleted_count > 0
+            else:
+                # PostgreSQL implementation
+                # Get deck and tournament status
+                deck_result = self.db.execute(text("""
+                    SELECT d.id, t.status
+                    FROM decks d
+                    JOIN tournaments t ON d.tournament_id = t.id
+                    WHERE d.id = :deck_id
+                """), {'deck_id': int(deck_id)})
+                
+                row = deck_result.first()
+                if not row:
+                    return False
+                
+                # Check if tournament is active
+                if row[1] == 'active':
+                    return False
+                
+                # Delete deck cards first (foreign key constraint)
+                self.db.execute(text("""
+                    DELETE FROM deck_cards WHERE deck_id = :deck_id
+                """), {'deck_id': int(deck_id)})
+                
+                # Delete deck
+                result = self.db.execute(text("""
+                    DELETE FROM decks WHERE id = :deck_id
+                """), {'deck_id': int(deck_id)})
+                
+                self.db.commit()
+                return result.rowcount > 0
         except Exception as e:
             print(f"Error deleting deck: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
             return False
-
-    def import_deck_from_moxfield(self, moxfield_url, player_id, tournament_id, name=None):
-        """Import a deck from Moxfield URL."""
-        try:
-            import requests
-            from bs4 import BeautifulSoup
-            
-            # Extract deck ID from URL
-            # Example: https://www.moxfield.com/decks/abc123
-            deck_id = moxfield_url.split('/')[-1]
-            
-            # Use Moxfield API to get deck data
-            api_url = f"https://api.moxfield.com/v2/decks/all/{deck_id}"
-            response = requests.get(api_url)
-            
-            if response.status_code != 200:
-                print(f"Error from Moxfield API: {response.status_code}")
-                return None
-            
-            deck_data = response.json()
-            
-            # Extract deck information
-            deck_name = name or deck_data.get('name', 'Imported Deck')
-            format_name = deck_data.get('format', 'standard').lower()
-            
-            # Extract main deck cards
-            main_deck = []
-            for card_name, card_info in deck_data.get('mainboard', {}).items():
-                main_deck.append({
-                    'name': card_name,
-                    'quantity': card_info.get('quantity', 1)
-                })
-            
-            # Extract sideboard cards
-            sideboard = []
-            for card_name, card_info in deck_data.get('sideboard', {}).items():
-                sideboard.append({
-                    'name': card_name,
-                    'quantity': card_info.get('quantity', 1)
-                })
-            
-            # Create deck object
-            deck_data = {
-                'name': deck_name,
-                'format': format_name,
-                'player_id': player_id,
-                'tournament_id': tournament_id,
-                'main_deck': main_deck,
-                'sideboard': sideboard,
-                'validation_status': 'pending',
-                'created_at': datetime.utcnow().isoformat(),
-                'updated_at': datetime.utcnow().isoformat()
-            }
-            
-            # Insert deck
-            result = self.db.decks.insert_one(deck_data)
-            return str(result.inserted_id)
-        
-        except Exception as e:
-            print(f"Error importing deck from Moxfield: {e}")
-            return None
-    
-    def validate_deck(self, deck_id, format_name):
-        """Validate a deck against format rules."""
-        try:
-            # Get deck
-            deck = self.db.decks.find_one({'_id': ObjectId(deck_id)})
-            if not deck:
-                return {'valid': False, 'errors': ['Deck not found']}
-            
-            # Initialize validation result
-            validation_result = {
-                'valid': True,
-                'errors': [],
-                'warnings': []
-            }
-            
-            # Get format rules
-            format_rules = self._get_format_rules(format_name)
-            
-            # Check deck size
-            main_deck_size = sum(card['quantity'] for card in deck['main_deck'])
-            if main_deck_size < format_rules['min_deck_size']:
-                validation_result['valid'] = False
-                validation_result['errors'].append(
-                    f"Deck contains {main_deck_size} cards, but format requires at least {format_rules['min_deck_size']}"
-                )
-            
-            if format_rules['max_deck_size'] > 0 and main_deck_size > format_rules['max_deck_size']:
-                validation_result['valid'] = False
-                validation_result['errors'].append(
-                    f"Deck contains {main_deck_size} cards, but format allows at most {format_rules['max_deck_size']}"
-                )
-            
-            # Check sideboard size
-            if 'sideboard' in deck:
-                sideboard_size = sum(card['quantity'] for card in deck['sideboard'])
-                if sideboard_size > format_rules['max_sideboard_size']:
-                    validation_result['valid'] = False
-                    validation_result['errors'].append(
-                        f"Sideboard contains {sideboard_size} cards, but format allows at most {format_rules['max_sideboard_size']}"
-                    )
-            
-            # Check card limits
-            card_counts = {}
-            for card in deck['main_deck']:
-                card_name = card['name']
-                if card_name not in card_counts:
-                    card_counts[card_name] = 0
-                card_counts[card_name] += card['quantity']
-            
-            if 'sideboard' in deck:
-                for card in deck['sideboard']:
-                    card_name = card['name']
-                    if card_name not in card_counts:
-                        card_counts[card_name] = 0
-                    card_counts[card_name] += card['quantity']
-            
-            for card_name, count in card_counts.items():
-                # Check if card is legal in format
-                card = self.db.cards.find_one({'name': card_name})
-                if card and 'legalities' in card:
-                    if format_name.lower() in card['legalities'] and card['legalities'][format_name.lower()] != 'legal':
-                        validation_result['valid'] = False
-                        validation_result['errors'].append(
-                            f"Card '{card_name}' is not legal in {format_name}"
-                        )
-                
-                # Check card quantity limits
-                if card_name == 'Plains' or card_name == 'Island' or card_name == 'Swamp' or card_name == 'Mountain' or card_name == 'Forest':
-                    continue  # Basic lands have no limit
-                
-                if count > format_rules['max_card_count']:
-                    validation_result['valid'] = False
-                    validation_result['errors'].append(
-                        f"Deck contains {count} copies of '{card_name}', but format allows at most {format_rules['max_card_count']}"
-                    )
-            
-            # Update deck validation status
-            self.db.decks.update_one(
-                {'_id': ObjectId(deck_id)},
-                {'$set': {
-                    'validation_status': 'valid' if validation_result['valid'] else 'invalid',
-                    'validation_errors': validation_result['errors']
-                }}
-            )
-            
-            return validation_result
-        except Exception as e:
-            print(f"Error validating deck: {e}")
-            return {'valid': False, 'errors': [str(e)]}
-    
-    def export_deck_to_text(self, deck_id):
-        """Export a deck to text format."""
-        try:
-            # Get deck
-            deck = self.db.decks.find_one({'_id': ObjectId(deck_id)})
-            if not deck:
-                return None
-            
-            # Format main deck
-            deck_text = "// Main Deck\n"
-            for card in deck['main_deck']:
-                deck_text += f"{card['quantity']} {card['name']}\n"
-            
-            # Format sideboard
-            if 'sideboard' in deck and deck['sideboard']:
-                deck_text += "\n// Sideboard\n"
-                for card in deck['sideboard']:
-                    deck_text += f"{card['quantity']} {card['name']}\n"
-            
-            return deck_text
-        except Exception as e:
-            print(f"Error exporting deck: {e}")
-            return None
-    
-    def _parse_deck_text(self, deck_text):
-        """Parse deck text into structured format."""
-        try:
-            lines = deck_text.strip().split('\n')
-            main_deck = []
-            sideboard = []
-            
-            # Determine if there's a sideboard section
-            in_sideboard = False
-            for line in lines:
-                line = line.strip()
-                
-                # Skip empty lines and comments
-                if not line or line.startswith('//'):
-                    if line.lower().find('sideboard') >= 0:
-                        in_sideboard = True
-                    continue
-                
-                # Parse card line
-                parts = line.split(' ', 1)
-                if len(parts) != 2:
-                    continue
-                
-                try:
-                    quantity = int(parts[0])
-                    card_name = parts[1].strip()
-                    
-                    card_entry = {
-                        'name': card_name,
-                        'quantity': quantity
-                    }
-                    
-                    if in_sideboard:
-                        sideboard.append(card_entry)
-                    else:
-                        main_deck.append(card_entry)
-                except ValueError:
-                    # Skip lines that don't start with a number
-                    continue
-            
-            return main_deck, sideboard
-        except Exception as e:
-            print(f"Error parsing deck text: {e}")
-            return [], []
-    
-    def _get_format_rules(self, format_name):
-        """Get rules for a specific format."""
-        format_name = format_name.lower()
-        
-        # Default rules
-        default_rules = {
-            'min_deck_size': 60,
-            'max_deck_size': 0,  # 0 means no maximum
-            'max_sideboard_size': 15,
-            'max_card_count': 4
-        }
-        
-        # Format-specific rules
-        format_rules = {
-            'standard': default_rules,
-            'modern': default_rules,
-            'legacy': default_rules,
-            'vintage': {
-                'min_deck_size': 60,
-                'max_deck_size': 0,
-                'max_sideboard_size': 15,
-                'max_card_count': 4  # Some cards are restricted to 1
-            },
-            'commander': {
-                'min_deck_size': 100,
-                'max_deck_size': 100,
-                'max_sideboard_size': 0,
-                'max_card_count': 1
-            },
-            'brawl': {
-                'min_deck_size': 60,
-                'max_deck_size': 60,
-                'max_sideboard_size': 0,
-                'max_card_count': 1
-            },
-            'draft': {
-                'min_deck_size': 40,
-                'max_deck_size': 0,
-                'max_sideboard_size': 0,  # Unlimited sideboard in limited formats
-                'max_card_count': 0  # No limit on card counts in limited formats
-            },
-            'sealed': {
-                'min_deck_size': 40,
-                'max_deck_size': 0,
-                'max_sideboard_size': 0,
-                'max_card_count': 0
-            }
-        }
-        
-        return format_rules.get(format_name, default_rules)

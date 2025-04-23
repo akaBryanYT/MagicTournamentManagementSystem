@@ -110,8 +110,20 @@ def create_next_round(tournament_id):
 @bp.route('/<tournament_id>/standings', methods=['GET'])
 def get_tournament_standings(tournament_id):
     """Get standings for a tournament."""
-    standings = tournament_service.get_tournament_standings(tournament_id)
+    standings = tournament_service.get_standings(tournament_id)
     return jsonify(standings), 200
+    
+@bp.route('/<tournament_id>/decks', methods=['GET'])
+def get_tournament_decks(tournament_id):
+    """Get decks for a tournament."""
+    try:
+        from app.services.deck_service import DeckService
+        deck_service = DeckService()
+        decks = deck_service.get_decks_by_tournament(tournament_id)
+        return jsonify(decks), 200
+    except Exception as e:
+        print(f"Error getting tournament decks: {e}")
+        return jsonify({'error': 'Failed to get tournament decks'}), 500
 
 @bp.route('/<tournament_id>/start', methods=['POST'])
 def start_tournament(tournament_id):
