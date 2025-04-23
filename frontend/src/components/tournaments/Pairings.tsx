@@ -30,29 +30,28 @@ const Pairings: React.FC<PairingsProps> = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // In a real implementation, this would be an API call
-    // For now, we'll use mock data
-    const mockTournamentName = 'Friday Night Magic';
-    const mockRound = 2;
+    const fetchPairings = async () => {
+      try {
+        setLoading(true);
+        // Fetch tournament details to get name and current round
+        const tournamentData = await TournamentService.getTournamentById(id!);
+        setTournamentName(tournamentData.name);
+        setRound(tournamentData.current_round);
+        
+        // Fetch pairings for the current round
+        const pairingsData = await TournamentService.getRoundPairings(id!, tournamentData.current_round);
+        setPairings(pairingsData);
+      } catch (err) {
+        console.error("Error fetching pairings:", err);
+        setError("Failed to load pairings");
+      } finally {
+        setLoading(false);
+      }
+    };
     
-    const mockPairings: Pairing[] = Array.from({ length: 8 }, (_, i) => ({
-      match_id: `m${i + 1}`,
-      table_number: i + 1,
-      player1_id: `p${i * 2 + 1}`,
-      player1_name: `Player ${i * 2 + 1}`,
-      player2_id: `p${i * 2 + 2}`,
-      player2_name: `Player ${i * 2 + 2}`,
-      status: i < 5 ? 'completed' : 'in_progress',
-      result: i < 5 ? (i % 3 === 0 ? 'win' : i % 3 === 1 ? 'loss' : 'draw') : '',
-      player1_wins: i < 5 ? (i % 3 === 0 ? 2 : i % 3 === 1 ? 0 : 1) : 0,
-      player2_wins: i < 5 ? (i % 3 === 0 ? 0 : i % 3 === 1 ? 2 : 1) : 0,
-      draws: i < 5 ? (i % 3 === 2 ? 1 : 0) : 0
-    }));
-
-    setTournamentName(mockTournamentName);
-    setRound(mockRound);
-    setPairings(mockPairings);
-    setLoading(false);
+    if (id) {
+      fetchPairings();
+    }
   }, [id]);
 
   const getMatchResultClass = (result: string) => {
