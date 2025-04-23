@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Button } from 'react-bootstrap';
+import { Card, Row, Col, Button, Spinner } from 'react-bootstrap';
 import { Link } from 'react-router-dom';
+import TournamentService from '../../services/tournamentService';
+import PlayerService from '../../services/playerService';
 
 interface DashboardProps {}
 
@@ -19,79 +21,45 @@ interface PlayerSummary {
   tournamentCount: number;
 }
 
-const Dashboard: React.FC<DashboardProps> = () => {
-  const [activeTournaments, setActiveTournaments] = useState<TournamentSummary[]>([]);
-  const [recentTournaments, setRecentTournaments] = useState<TournamentSummary[]>([]);
-  const [topPlayers, setTopPlayers] = useState<PlayerSummary[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+const Dashboard: React.FC = () => {
+  const [activeTournaments, setActiveTournaments] = useState([]);
+  const [recentTournaments, setRecentTournaments] = useState([]);
+  const [topPlayers, setTopPlayers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // In a real implementation, these would be API calls
-    // For now, we'll use mock data
-    const mockActiveTournaments: TournamentSummary[] = [
-      {
-        id: '1',
-        name: 'Friday Night Magic',
-        format: 'Standard',
-        status: 'active',
-        date: '2025-03-31',
-        playerCount: 16
-      },
-      {
-        id: '2',
-        name: 'Commander League',
-        format: 'Commander',
-        status: 'active',
-        date: '2025-03-30',
-        playerCount: 12
+    const fetchData = async () => {
+      try {
+        // Fetch active tournaments
+        const activeResponse = await TournamentService.getActiveTournaments();
+        setActiveTournaments(activeResponse || []);
+        
+        // Fetch recent tournaments
+        const recentResponse = await TournamentService.getRecentTournaments();
+        setRecentTournaments(recentResponse || []);
+        
+        // Fetch top players
+        const playersResponse = await PlayerService.getAllPlayers();
+        setTopPlayers((playersResponse.players || []).slice(0, 5));
+        
+        setLoading(false);
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+        setLoading(false);
       }
-    ];
-
-    const mockRecentTournaments: TournamentSummary[] = [
-      {
-        id: '3',
-        name: 'Draft Weekend',
-        format: 'Draft',
-        status: 'completed',
-        date: '2025-03-28',
-        playerCount: 8
-      },
-      {
-        id: '4',
-        name: 'Modern Showdown',
-        format: 'Modern',
-        status: 'completed',
-        date: '2025-03-25',
-        playerCount: 24
-      }
-    ];
-
-    const mockTopPlayers: PlayerSummary[] = [
-      {
-        id: '1',
-        name: 'Jane Smith',
-        tournamentCount: 15
-      },
-      {
-        id: '2',
-        name: 'John Doe',
-        tournamentCount: 12
-      },
-      {
-        id: '3',
-        name: 'Alex Johnson',
-        tournamentCount: 10
-      }
-    ];
-
-    setActiveTournaments(mockActiveTournaments);
-    setRecentTournaments(mockRecentTournaments);
-    setTopPlayers(mockTopPlayers);
-    setLoading(false);
+    };
+  
+    fetchData();
   }, []);
 
   if (loading) {
-    return <div>Loading dashboard...</div>;
+    return (
+      <div className="text-center my-5">
+        <Spinner animation="border" role="status">
+          <span className="visually-hidden">Loading...</span>
+        </Spinner>
+      </div>
+    );
   }
 
   return (
