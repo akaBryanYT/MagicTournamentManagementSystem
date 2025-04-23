@@ -82,7 +82,67 @@ const Standings: React.FC<StandingsProps> = () => {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h1>Standings: {tournamentName}</h1>
         <div>
-          <Button variant="outline-primary" className="me-2">
+          <Button variant="outline-secondary" size="sm" onClick={() => {
+            const printWindow = window.open('', '_blank');
+            
+            if (printWindow) {
+              printWindow.document.write(`
+                <html>
+                  <head>
+                    <title>Standings: ${tournamentName}</title>
+                    <style>
+                      body { font-family: Arial, sans-serif; }
+                      table { border-collapse: collapse; width: 100%; }
+                      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                      th { background-color: #f2f2f2; }
+                      .first-place { background-color: rgba(255, 215, 0, 0.2); }
+                      .second-place { background-color: rgba(192, 192, 192, 0.2); }
+                      .third-place { background-color: rgba(205, 127, 50, 0.2); }
+                    </style>
+                  </head>
+                  <body>
+                    <h1>Standings: ${tournamentName}</h1>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Rank</th>
+                          <th>Player</th>
+                          <th>Match Points</th>
+                          <th>Matches</th>
+                          <th>Game Points</th>
+                          <th>OMW%</th>
+                          <th>GW%</th>
+                          <th>OGW%</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${standings.map(standing => `
+                          <tr class="${standing.rank === 1 ? 'first-place' : 
+                                      standing.rank === 2 ? 'second-place' : 
+                                      standing.rank === 3 ? 'third-place' : ''}">
+                            <td>${standing.rank}</td>
+                            <td>${standing.player_name}</td>
+                            <td>${standing.match_points}</td>
+                            <td>${standing.matches_played}</td>
+                            <td>${standing.game_points}</td>
+                            <td>${(standing.opponents_match_win_percentage * 100).toFixed(1)}%</td>
+                            <td>${(standing.game_win_percentage * 100).toFixed(1)}%</td>
+                            <td>${(standing.opponents_game_win_percentage * 100).toFixed(1)}%</td>
+                            <td>${standing.active ? 'Active' : 'Dropped'}</td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+                  </body>
+                </html>
+              `);
+              printWindow.document.close();
+              printWindow.focus();
+              printWindow.print();
+              printWindow.close();
+            }
+          }}>
             Print Standings
           </Button>
           <Link to={`/tournaments/${id}`} className="btn btn-outline-secondary">
