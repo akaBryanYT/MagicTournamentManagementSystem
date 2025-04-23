@@ -208,7 +208,18 @@ class TournamentService:
     
     def create_tournament(self, tournament_data):
         """Create a new tournament."""
-        try:
+        try:  
+            # Handle both snake_case and camelCase format_config
+            if 'format_config' in tournament_data:
+                fc = tournament_data['format_config']
+                # Convert camelCase to snake_case if needed
+                if 'podSize' in fc and 'pod_size' not in fc:
+                    fc['pod_size'] = fc.pop('podSize')
+                if 'packsPerPlayer' in fc and 'packs_per_player' not in fc:
+                    fc['packs_per_player'] = fc.pop('packsPerPlayer')
+                if 'pointSystem' in fc and 'point_system' not in fc:
+                    fc['point_system'] = fc.pop('pointSystem')
+                
             if self.db_type == 'mongodb':
                 # Add timestamps
                 tournament_data['created_at'] = datetime.utcnow().isoformat()

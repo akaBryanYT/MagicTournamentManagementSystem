@@ -195,9 +195,11 @@ const TournamentCreate: React.FC = () => {
           third_place_match: formData.structureConfig.thirdPlaceMatch,
           grand_finals_modifier: formData.structureConfig.grandFinalsModifier
         },
+        // Fix this format_config to use camelCase properties
         format_config: {
-          pod_size: formData.formatConfig.podSize,
-          packs_per_player: formData.formatConfig.packsPerPlayer
+          podSize: formData.formatConfig.podSize,  // Changed from pod_size
+          packsPerPlayer: formData.formatConfig.packsPerPlayer,  // Changed from packs_per_player
+          pointSystem: formData.formatConfig.pointSystem || 'standard'
         },
         tiebreakers: {
           match_points: formData.tiebreakers.matchPoints,
@@ -207,12 +209,14 @@ const TournamentCreate: React.FC = () => {
         }
       };
       
+      // Fix date formatting
       const formattedData = {
-	    ...tournamentData,
-	    date: new Date(tournamentData.date).toISOString().split('T')[0]
-	  };
-	  
-	  const result = await TournamentService.createTournament(formattedData);
+        ...tournamentData,
+        date: new Date(tournamentData.date).toISOString().split('T')[0]
+      };
+      
+      // Now the tournament service call should work
+      const result = await TournamentService.createTournament(formattedData);
       
       if (result && result.id) {
         navigate(`/tournaments/${result.id}`);
