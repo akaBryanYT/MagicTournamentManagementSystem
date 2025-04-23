@@ -29,46 +29,27 @@ const Standings: React.FC<StandingsProps> = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // In a real implementation, this would be an API call
-    // For now, we'll use mock data
-    const mockTournamentName = 'Friday Night Magic';
-    
-    const mockStandings: Standing[] = Array.from({ length: 16 }, (_, i) => ({
-      rank: i + 1,
-      player_id: `p${i + 1}`,
-      player_name: `Player ${i + 1}`,
-      matches_played: Math.min(3, Math.floor(Math.random() * 4)),
-      match_points: Math.floor(Math.random() * 9),
-      game_points: Math.floor(Math.random() * 6),
-      match_win_percentage: Math.random(),
-      game_win_percentage: Math.random(),
-      opponents_match_win_percentage: Math.random(),
-      opponents_game_win_percentage: Math.random(),
-      active: Math.random() > 0.1
-    }));
-    
-    // Sort by match points and other tiebreakers
-    mockStandings.sort((a, b) => {
-      if (a.match_points !== b.match_points) {
-        return b.match_points - a.match_points;
+    const fetchStandings = async () => {
+      try {
+        setLoading(true);
+        // Fetch tournament details
+        const tournamentData = await TournamentService.getTournamentById(id!);
+        setTournamentName(tournamentData.name);
+        
+        // Fetch standings
+        const standingsData = await TournamentService.getStandings(id!);
+        setStandings(standingsData);
+      } catch (err) {
+        console.error("Error fetching standings:", err);
+        setError("Failed to load standings");
+      } finally {
+        setLoading(false);
       }
-      if (a.opponents_match_win_percentage !== b.opponents_match_win_percentage) {
-        return b.opponents_match_win_percentage - a.opponents_match_win_percentage;
-      }
-      if (a.game_win_percentage !== b.game_win_percentage) {
-        return b.game_win_percentage - a.game_win_percentage;
-      }
-      return b.opponents_game_win_percentage - a.opponents_game_win_percentage;
-    });
+    };
     
-    // Update ranks
-    mockStandings.forEach((standing, index) => {
-      standing.rank = index + 1;
-    });
-
-    setTournamentName(mockTournamentName);
-    setStandings(mockStandings);
-    setLoading(false);
+    if (id) {
+      fetchStandings();
+    }
   }, [id]);
 
   const getRowClassName = (rank: number) => {
