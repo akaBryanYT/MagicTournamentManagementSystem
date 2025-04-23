@@ -18,7 +18,8 @@ interface Tournament {
   status: string;
   rounds: number;
   current_round: number;
-  time_limit: number;
+  time_limit?: number;  
+  timeLimit?: number;   
   structure_config: {
     allow_intentional_draws: boolean;
     use_seeds_for_byes: boolean;
@@ -704,7 +705,11 @@ const TournamentDetail: React.FC = () => {
                   </tr>
                   <tr>
                     <th>Time Limit</th>
-                    <td>{tournament.time_limit || 'Not specified'} minutes</td>
+                    <td>
+                      {tournament.time_limit || tournament.timeLimit ? 
+                        `${tournament.time_limit || tournament.timeLimit} minutes` : 
+                        'Not specified'}
+                    </td>
                   </tr>
                 </tbody>
               </Table>
@@ -850,16 +855,43 @@ const TournamentDetail: React.FC = () => {
                       ? 'Final Round Matches'
                       : 'Matches'}
                 </h5>
-                {tournament.status === 'active' && (
-                  <div>
-                    <Button variant="outline-primary" size="sm" onClick={() => window.print()} className="me-2">
-                      Print Pairings
-                    </Button>
-                    <Link to={`/tournaments/${id}/pairings`} className="btn btn-sm btn-primary">
-                      Full Pairings View
-                    </Link>
-                  </div>
-                )}
+				{tournament.status === 'active' && (
+				<div>
+					<Button variant="outline-primary" size="sm" onClick={() => {
+					const content = document.querySelector('.tournament-pairings-content');
+					const printWindow = window.open('', '_blank');
+					
+					if (printWindow && content) {
+						printWindow.document.write(`
+						<html>
+							<head>
+							<title>Tournament Pairings - ${tournament.name}</title>
+							<style>
+								body { font-family: Arial, sans-serif; }
+								table { border-collapse: collapse; width: 100%; }
+								th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+								th { background-color: #f2f2f2; }
+							</style>
+							</head>
+							<body>
+							<h1>Round ${tournament.current_round} Pairings: ${tournament.name}</h1>
+							${content.innerHTML}
+							</body>
+						</html>
+						`);
+						printWindow.document.close();
+						printWindow.focus();
+						printWindow.print();
+						printWindow.close();
+					}
+					}} className="me-2">
+					Print Pairings
+					</Button>
+					<Link to={`/tournaments/${id}/pairings`} className="btn btn-sm btn-primary">
+					Full Pairings View
+					</Link>
+				</div>
+				)}
               </div>
 
               {tournament.status === 'planned' ? (
