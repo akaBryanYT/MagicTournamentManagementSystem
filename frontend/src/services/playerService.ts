@@ -25,6 +25,10 @@ const PlayerService = {
       const response = await apiClient.get('/players', {
         params: { page, limit, search }
       });
+      // Fixed: Ensure response is properly formatted if it's not an array in player object
+      if (Array.isArray(response.data)) {
+        return { players: response.data, total: response.data.length, page, limit };
+      }
       return response.data;
     } catch (error) {
       console.error('Error fetching players:', error);
