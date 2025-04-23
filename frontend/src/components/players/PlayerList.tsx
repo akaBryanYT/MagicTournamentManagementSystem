@@ -22,22 +22,48 @@ const PlayerList: React.FC<PlayerListProps> = () => {
   const [filteredPlayers, setFilteredPlayers] = useState<Player[]>([]);
 
   useEffect(() => {
-    // In a real implementation, this would be an API call
-    // For now, we'll use mock data
-    const mockPlayers: Player[] = Array.from({ length: 20 }, (_, i) => ({
-      id: `p${i + 1}`,
-      name: `Player ${i + 1}`,
-      email: `player${i + 1}@example.com`,
-      phone: `555-${100 + i}`,
-      dci_number: i % 3 === 0 ? `12345${i}` : undefined,
-      active: i % 7 !== 0,
-      tournamentCount: Math.floor(Math.random() * 10)
-    }));
-
-    setPlayers(mockPlayers);
-    setFilteredPlayers(mockPlayers);
-    setLoading(false);
+    const fetchPlayers = async () => {
+      try {
+        setLoading(true);
+        const response = await PlayerService.getAllPlayers();
+        setPlayers(response.players || []);
+        setFilteredPlayers(response.players || []);
+      } catch (err) {
+        console.error("Error fetching players:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+  
+    fetchPlayers();
   }, []);
+  
+  // Handle player activation/deactivation
+  const handleTogglePlayerStatus = async (playerId: string, currentStatus: boolean) => {
+    try {
+      await PlayerService.togglePlayerStatus(playerId, !currentStatus);
+      
+      // Update player list
+      setPlayers(prevPlayers => 
+        prevPlayers.map(player => 
+          player.id === playerId 
+            ? {...player, active: !currentStatus} 
+            : player
+        )
+      );
+      
+      // Update filtered list
+      setFilteredPlayers(prevPlayers => 
+        prevPlayers.map(player => 
+          player.id === playerId 
+            ? {...player, active: !currentStatus} 
+            : player
+        )
+      );
+    } catch (err) {
+      console.error("Error toggling player status:", err);
+    }
+  };
 
   useEffect(() => {
     if (searchTerm.trim() === '') {
