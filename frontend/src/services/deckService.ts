@@ -59,17 +59,38 @@ const DeckService = {
     const response = await apiClient.post(`/decks/${id}/validate`);
     return response.data;
   },
-
-  // Import deck from text
-  importDeckFromText: async (deckText: string, format: string, player_id: string, tournament_id: string, name: string) => {
-    const response = await apiClient.post('/decks/import', {
-      deck_text: deckText,
-      format,
-      player_id,
-      tournament_id,
-      name
-    });
-    return response.data;
+    
+  // Import deck from Moxfield URL
+  importDeckFromMoxfield: async (playerId: string, tournamentId: string, moxfieldUrl: string, name?: string) => {
+    try {
+      const response = await apiClient.post('/decks/import', {
+        player_id: playerId,
+        tournament_id: tournamentId,
+        moxfield_url: moxfieldUrl,
+        name: name || 'Moxfield Deck'
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error importing deck from Moxfield:', error);
+      throw error;
+    }
+  },
+  
+  // Import deck from text format
+  importDeckFromText: async (playerId: string, tournamentId: string, deckText: string, format: string, name?: string) => {
+    try {
+      const response = await apiClient.post('/decks/import', {
+        player_id: playerId,
+        tournament_id: tournamentId,
+        deck_text: deckText,
+        format: format,
+        name: name || 'Imported Deck'
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error importing deck from text:', error);
+      throw error;
+    }
   },
 
   // Export deck to text
