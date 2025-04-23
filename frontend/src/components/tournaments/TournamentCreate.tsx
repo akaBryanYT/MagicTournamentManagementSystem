@@ -207,7 +207,12 @@ const TournamentCreate: React.FC = () => {
         }
       };
       
-      const result = await TournamentService.createTournament(tournamentData as any);
+      const formattedData = {
+	    ...tournamentData,
+	    date: new Date(tournamentData.date).toISOString().split('T')[0]
+	  };
+	  
+	  const result = await TournamentService.createTournament(formattedData);
       
       if (result && result.id) {
         navigate(`/tournaments/${result.id}`);
