@@ -227,7 +227,7 @@ const DeckCreate: React.FC = () => {
         if (trimmedLine.startsWith('//')) continue;
         
         // Parse card line (e.g., "4 Lightning Bolt" or "1 Prime Speaker Zegana (FDN) 664")
-        const match = trimmedLine.match(/^(\d+)\s+([^(]+)(?:\s+\(.*\)\s+.*)?$/);
+        const match = trimmedLine.match(/^(\d+)\s+([^(]+?)(?:\s+\(([A-Z0-9]+)\))?(?:\s+(\d+))?$/);
         if (match) {
           const quantity = parseInt(match[1], 10);
           const cardName = match[2].trim();
