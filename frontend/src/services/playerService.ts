@@ -25,11 +25,31 @@ const PlayerService = {
       const response = await apiClient.get('/players', {
         params: { page, limit, search }
       });
-      // Fixed: Ensure response is properly formatted if it's not an array in player object
+      
+      // Standardize response format to always return consistent structure
       if (Array.isArray(response.data)) {
-        return { players: response.data, total: response.data.length, page, limit };
+        // If API returns array directly, wrap it in the expected format
+        return { 
+          players: response.data, 
+          total: response.data.length, 
+          page, 
+          limit 
+        };
+      } else if (response.data && response.data.players) {
+        // API returned the correct structured response
+        return response.data;
+      } else if (response.data) {
+        // Some other object was returned, try to handle it gracefully
+        return {
+          players: response.data.items || response.data.data || [],
+          total: response.data.total || response.data.count || 0,
+          page,
+          limit
+        };
       }
-      return response.data;
+      
+      // Fallback default response
+      return { players: [], total: 0, page, limit };
     } catch (error) {
       console.error('Error fetching players:', error);
       return { players: [], total: 0, page, limit };
