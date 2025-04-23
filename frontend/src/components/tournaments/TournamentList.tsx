@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Badge, Spinner } from 'react-bootstrap';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import TournamentService from '../../services/tournamentService';
 
 interface TournamentListProps {}
 
@@ -10,73 +11,30 @@ interface Tournament {
   format: string;
   date: string;
   status: string;
-  playerCount: number;
+  player_count: number;
+  current_round: number;
   rounds: number;
-  currentRound: number;
 }
 
 const TournamentList: React.FC<TournamentListProps> = () => {
+  const navigate = useNavigate();
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // In a real implementation, this would be an API call
-    // For now, we'll use mock data
-    const mockTournaments: Tournament[] = [
-      {
-        id: '1',
-        name: 'Friday Night Magic',
-        format: 'Standard',
-        date: '2025-03-31',
-        status: 'active',
-        playerCount: 16,
-        rounds: 4,
-        currentRound: 2
-      },
-      {
-        id: '2',
-        name: 'Commander League',
-        format: 'Commander',
-        date: '2025-03-30',
-        status: 'active',
-        playerCount: 12,
-        rounds: 3,
-        currentRound: 3
-      },
-      {
-        id: '3',
-        name: 'Draft Weekend',
-        format: 'Draft',
-        date: '2025-03-28',
-        status: 'completed',
-        playerCount: 8,
-        rounds: 3,
-        currentRound: 3
-      },
-      {
-        id: '4',
-        name: 'Modern Showdown',
-        format: 'Modern',
-        date: '2025-03-25',
-        status: 'completed',
-        playerCount: 24,
-        rounds: 5,
-        currentRound: 5
-      },
-      {
-        id: '5',
-        name: 'Upcoming Sealed Event',
-        format: 'Sealed',
-        date: '2025-04-05',
-        status: 'planned',
-        playerCount: 0,
-        rounds: 0,
-        currentRound: 0
+    const fetchTournaments = async () => {
+      try {
+        setLoading(true);
+        const response = await TournamentService.getAllTournaments();
+        setTournaments(response.tournaments || []);
+      } catch (err) {
+        console.error("Error fetching tournaments:", err);
+      } finally {
+        setLoading(false);
       }
-    ];
+    };
 
-    setTournaments(mockTournaments);
-    setLoading(false);
+    fetchTournaments();
   }, []);
 
   const getStatusBadge = (status: string) => {
@@ -139,12 +97,12 @@ const TournamentList: React.FC<TournamentListProps> = () => {
                     <td>{tournament.format}</td>
                     <td>{new Date(tournament.date).toLocaleDateString()}</td>
                     <td>{getStatusBadge(tournament.status)}</td>
-                    <td>{tournament.playerCount}</td>
+                    <td>{tournament.player_count || 0}</td>
                     <td>
                       {tournament.status === 'planned' ? (
                         'Not started'
                       ) : (
-                        `${tournament.currentRound} / ${tournament.rounds}`
+                        `${tournament.current_round} / ${tournament.rounds}`
                       )}
                     </td>
                     <td>
