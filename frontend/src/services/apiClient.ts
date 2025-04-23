@@ -8,14 +8,14 @@ const apiClient = axios.create({
   }
 });
 
-// Add request interceptor for authentication if needed
+// Add request interceptor for error handling
 apiClient.interceptors.request.use(
   config => {
-    // You can add auth token here if needed
-    // const token = localStorage.getItem('token');
-    // if (token) {
-    //   config.headers.Authorization = `Bearer ${token}`;
-    // }
+    // Add caching prevention for GET requests
+    if (config.method?.toLowerCase() === 'get') {
+      config.params = config.params || {};
+      config.params['_'] = new Date().getTime();
+    }
     return config;
   },
   error => {
@@ -29,18 +29,26 @@ apiClient.interceptors.response.use(
     return response;
   },
   error => {
-    // Handle common errors here
+    // Format error messages
+    let errorMessage = 'An unknown error occurred';
     if (error.response) {
-      // Server responded with an error status code
-      console.error('API Error:', error.response.data);
+      // The request was made and the server responded with an error
+      const data = error.response.data;
+      errorMessage = data.error || data.message || `Server error: ${error.response.status}`;
     } else if (error.request) {
-      // Request was made but no response received
-      console.error('Network Error:', error.request);
+      // The request was made but no response was received
+      errorMessage = 'No response from server. Please check your connection.';
     } else {
       // Something else happened while setting up the request
-      console.error('Error:', error.message);
+      errorMessage = error.message || errorMessage;
     }
-    return Promise.reject(error);
+    
+    // Create a custom error with the message
+    const customError = new Error(errorMessage);
+    customError.name = 'ApiError';
+    customError.status = error.response?.status;
+    
+    return Promise.reject(customError);
   }
 );
 
