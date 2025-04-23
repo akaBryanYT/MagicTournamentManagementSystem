@@ -1,6 +1,5 @@
-// src/types.ts
 export interface Tournament {
-  id: string | undefined;  // Changed from just string to accept undefined
+  id?: string;  // Changed from just string to accept undefined
   name: string;
   format: string;
   date: string;
