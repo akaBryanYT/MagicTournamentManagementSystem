@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Badge, Tabs, Tab, Alert, Row, Col, Spinner } from 'react-bootstrap';
 import { Link, useParams, useNavigate } from 'react-router-dom';
+import DeckService from '../../services/deckService';
 
 interface DeckDetailProps {}
 
@@ -15,7 +16,7 @@ interface Deck {
   validation_status: string;
   validation_errors: string[];
   created_at: string;
-  mainDeck: {name: string, quantity: number}[];
+  main_deck: {name: string, quantity: number}[];
   sideboard: {name: string, quantity: number}[];
 }
 
@@ -27,44 +28,31 @@ const DeckDetail: React.FC<DeckDetailProps> = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // In a real implementation, this would be an API call
-    // For now, we'll use mock data
-    const mockDeck: Deck = {
-      id: id || 'd1',
-      name: 'Mono Red Aggro',
-      format: 'Standard',
-      player_id: 'p1',
-      player_name: 'John Doe',
-      tournament_id: 't1',
-      tournament_name: 'Friday Night Magic',
-      validation_status: 'valid',
-      validation_errors: [],
-      created_at: '2025-03-30T12:00:00Z',
-      mainDeck: [
-        { name: 'Mountain', quantity: 20 },
-        { name: 'Lightning Bolt', quantity: 4 },
-        { name: 'Goblin Guide', quantity: 4 },
-        { name: 'Monastery Swiftspear', quantity: 4 },
-        { name: 'Eidolon of the Great Revel', quantity: 4 },
-        { name: 'Skewer the Critics', quantity: 4 },
-        { name: 'Light Up the Stage', quantity: 4 },
-        { name: 'Lava Spike', quantity: 4 },
-        { name: 'Rift Bolt', quantity: 4 },
-        { name: 'Searing Blaze', quantity: 4 },
-        { name: 'Skullcrack', quantity: 4 }
-      ],
-      sideboard: [
-        { name: 'Smash to Smithereens', quantity: 3 },
-        { name: 'Tormod\'s Crypt', quantity: 2 },
-        { name: 'Blood Moon', quantity: 2 },
-        { name: 'Searing Blood', quantity: 3 },
-        { name: 'Exquisite Firecraft', quantity: 3 },
-        { name: 'Relic of Progenitus', quantity: 2 }
-      ]
+    const fetchDeckData = async () => {
+      try {
+        setLoading(true);
+        const deckData = await DeckService.getDeckById(id!);
+        
+        // Transform the response to match our component's expected interface
+        // API likely returns main_deck and sideboard, but our component expects mainDeck
+        const transformedDeck = {
+          ...deckData,
+          mainDeck: deckData.main_deck || [],
+          sideboard: deckData.sideboard || []
+        };
+        
+        setDeck(transformedDeck);
+      } catch (err: any) {
+        console.error('Error fetching deck:', err);
+        setError(err.message || 'Failed to load deck data');
+      } finally {
+        setLoading(false);
+      }
     };
 
-    setDeck(mockDeck);
-    setLoading(false);
+    if (id) {
+      fetchDeckData();
+    }
   }, [id]);
 
   const getValidationStatusBadge = (status: string) => {
@@ -98,22 +86,40 @@ const DeckDetail: React.FC<DeckDetailProps> = () => {
     return deckText;
   };
 
-  const handleExport = () => {
-    const deckText = exportDeckToText();
+  const handleExport = async () => {
+    if (!deck?.id) return;
     
-    // In a real implementation, this would download a file
-    // For now, we'll just log it to the console
-    console.log(deckText);
-    
-    // Create a temporary textarea to copy to clipboard
-    const textarea = document.createElement('textarea');
-    textarea.value = deckText;
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    document.body.removeChild(textarea);
-    
-    alert('Deck list copied to clipboard!');
+    try {
+      // Use the proper API to get the deck text
+      const result = await DeckService.exportDeckToText(deck.id);
+      
+      // Copy to clipboard
+      navigator.clipboard.writeText(result.deck_text)
+        .then(() => alert('Deck list copied to clipboard!'))
+        .catch(() => {
+          // Fallback for browsers that don't support clipboard API
+          const textarea = document.createElement('textarea');
+          textarea.value = result.deck_text;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          alert('Deck list copied to clipboard!');
+        });
+    } catch (err) {
+      console.error('Error exporting deck:', err);
+      alert('Failed to export deck');
+      
+      // Fallback to local function if API fails
+      const deckText = exportDeckToText();
+      const textarea = document.createElement('textarea');
+      textarea.value = deckText;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      alert('Deck list copied to clipboard (using local data)');
+    }
   };
 
   if (loading) {
@@ -200,7 +206,7 @@ const DeckDetail: React.FC<DeckDetailProps> = () => {
             </Card.Body>
           </Card>
 
-          {deck.validation_status === 'invalid' && deck.validation_errors.length > 0 && (
+          {deck.validation_status === 'invalid' && deck.validation_errors && deck.validation_errors.length > 0 && (
             <Card className="mb-4 border-danger">
               <Card.Header className="bg-danger text-white">Validation Errors</Card.Header>
               <Card.Body>
@@ -225,7 +231,25 @@ const DeckDetail: React.FC<DeckDetailProps> = () => {
                 <Button variant="outline-primary">
                   Edit Deck
                 </Button>
-                <Button variant="outline-primary">
+                <Button 
+                  variant="outline-primary"
+                  onClick={async () => {
+                    try {
+                      const result = await DeckService.validateDeck(deck.id, deck.format);
+                      alert('Deck validation complete');
+                      // Refresh deck data to show new validation status
+                      const updatedDeck = await DeckService.getDeckById(deck.id);
+                      setDeck({
+                        ...updatedDeck,
+                        mainDeck: updatedDeck.main_deck || [],
+                        sideboard: updatedDeck.sideboard || []
+                      });
+                    } catch (err) {
+                      console.error('Error validating deck:', err);
+                      alert('Failed to validate deck');
+                    }
+                  }}
+                >
                   Validate Deck
                 </Button>
               </div>
