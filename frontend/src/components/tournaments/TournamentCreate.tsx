@@ -25,6 +25,7 @@ const TournamentCreate: React.FC = () => {
     formatConfig: {
       podSize: 8,
       packsPerPlayer: 3,
+      pointSystem: 'standard'  // Add this property
     },
     tiebreakers: {
       matchPoints: true,
@@ -465,7 +466,7 @@ const TournamentCreate: React.FC = () => {
               name="formatConfig.podSize"
               value={formData.formatConfig.podSize || 4}
               onChange={handleChange}
-              min="3"
+              min="2"
               max="6"
             />
           </Form.Group>
