@@ -91,48 +91,48 @@ class DatabaseConfig:
         elif self.db_type == 'postgresql' and self.session:
             self.session.close()
             
-    def initialize_database(db):
-        """Initialize MongoDB collections and indexes."""
-        try:
-            # Create collections if they don't exist
-            if "players" not in db.list_collection_names():
-                db.create_collection("players")
+def initialize_database(db):
+    """Initialize MongoDB collections and indexes."""
+    try:
+        # Create collections if they don't exist
+        if "players" not in db.list_collection_names():
+            db.create_collection("players")
+        
+        if "tournaments" not in db.list_collection_names():
+            db.create_collection("tournaments")
+        
+        if "matches" not in db.list_collection_names():
+            db.create_collection("matches")
             
-            if "tournaments" not in db.list_collection_names():
-                db.create_collection("tournaments")
+        if "decks" not in db.list_collection_names():
+            db.create_collection("decks")
             
-            if "matches" not in db.list_collection_names():
-                db.create_collection("matches")
-                
-            if "decks" not in db.list_collection_names():
-                db.create_collection("decks")
-                
-            if "cards" not in db.list_collection_names():
-                db.create_collection("cards")
-                
-            if "standings" not in db.list_collection_names():
-                db.create_collection("standings")
-                
-            # Create indexes
-            db.players.create_index("email", unique=True)
-            db.players.create_index("name")
+        if "cards" not in db.list_collection_names():
+            db.create_collection("cards")
             
-            db.tournaments.create_index("name")
-            db.tournaments.create_index("status")
+        if "standings" not in db.list_collection_names():
+            db.create_collection("standings")
             
-            db.matches.create_index("tournament_id")
-            db.matches.create_index([("tournament_id", 1), ("round", 1)])
-            
-            db.decks.create_index([("player_id", 1), ("tournament_id", 1)])
-            db.decks.create_index("tournament_id")
-            
-            db.cards.create_index("name", unique=True)
-            db.cards.create_index("set_code")
-            
-            db.standings.create_index([("tournament_id", 1), ("player_id", 1)], unique=True)
-            
-            print("MongoDB collections and indexes created successfully")
-            return True
-        except Exception as e:
-            print(f"Error initializing MongoDB: {e}")
-            return False
+        # Create indexes
+        db.players.create_index("email", unique=True)
+        db.players.create_index("name")
+        
+        db.tournaments.create_index("name")
+        db.tournaments.create_index("status")
+        
+        db.matches.create_index("tournament_id")
+        db.matches.create_index([("tournament_id", 1), ("round", 1)])
+        
+        db.decks.create_index([("player_id", 1), ("tournament_id", 1)])
+        db.decks.create_index("tournament_id")
+        
+        db.cards.create_index("name", unique=True)
+        db.cards.create_index("set_code")
+        
+        db.standings.create_index([("tournament_id", 1), ("player_id", 1)], unique=True)
+        
+        print("MongoDB collections and indexes created successfully")
+        return True
+    except Exception as e:
+        print(f"Error initializing MongoDB: {e}")
+        return False
