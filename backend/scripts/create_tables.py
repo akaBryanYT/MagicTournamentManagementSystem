@@ -1,7 +1,11 @@
-from app.models.database import DatabaseConfig
-from app.models.database import initialize_database as initialize_mongo
-from app.models.postgresql_schema import initialize_database as initialize_postgresql
 import os
+import sys
+
+# Add the parent directory (backend/) to Python path
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__) + '/..'))
+
+from app.models.database import DatabaseConfig, initialize_database as initialize_mongo
+from app.models.postgresql_schema import initialize_database as initialize_postgresql
 
 def main():
     """Initialize database tables."""
