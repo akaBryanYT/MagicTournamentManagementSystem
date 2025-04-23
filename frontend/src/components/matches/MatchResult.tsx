@@ -39,34 +39,29 @@ const MatchResult: React.FC<MatchResultProps> = () => {
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    // In a real implementation, this would be an API call
-    // For now, we'll use mock data
-    const mockMatch: Match = {
-      id: id || 'm1',
-      tournament_id: 't1',
-      tournament_name: 'Friday Night Magic',
-      round: 2,
-      table_number: 3,
-      player1_id: 'p1',
-      player1_name: 'John Doe',
-      player2_id: 'p2',
-      player2_name: 'Jane Smith',
-      player1_wins: 0,
-      player2_wins: 0,
-      draws: 0,
-      result: '',
-      status: 'in_progress'
+    const fetchMatchData = async () => {
+      try {
+        setLoading(true);
+        const matchData = await MatchService.getMatchById(id!);
+        setMatch(matchData);
+        setFormData({
+          player1_wins: matchData.player1_wins,
+          player2_wins: matchData.player2_wins,
+          draws: matchData.draws
+        });
+      } catch (err) {
+        console.error("Error fetching match data:", err);
+        setError("Failed to load match data");
+      } finally {
+        setLoading(false);
+      }
     };
-
-    setMatch(mockMatch);
-    setFormData({
-      player1_wins: mockMatch.player1_wins,
-      player2_wins: mockMatch.player2_wins,
-      draws: mockMatch.draws
-    });
-    setLoading(false);
+    
+    if (id) {
+      fetchMatchData();
+    }
   }, [id]);
-
+  
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData({
@@ -74,8 +69,8 @@ const MatchResult: React.FC<MatchResultProps> = () => {
       [name]: parseInt(value, 10) || 0
     });
   };
-
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
     
@@ -94,57 +89,44 @@ const MatchResult: React.FC<MatchResultProps> = () => {
     setSubmitting(true);
     setError(null);
     
-    // In a real implementation, this would be an API call
-    console.log('Submitting match result:', formData);
-    
-    // Simulate successful submission
-    setTimeout(() => {
-      setSubmitting(false);
-      setSuccess(true);
+    try {
+      const result = await MatchService.submitResult(id!, formData);
       
-      if (match) {
-        setMatch({
-          ...match,
-          player1_wins: formData.player1_wins,
-          player2_wins: formData.player2_wins,
-          draws: formData.draws,
-          result: formData.player1_wins > formData.player2_wins ? 'win' : 
-                 formData.player2_wins > formData.player1_wins ? 'loss' : 'draw',
-          status: 'completed'
-        });
+      if (result) {
+        setSuccess(true);
+        // Refresh match data
+        const updatedMatch = await MatchService.getMatchById(id!);
+        setMatch(updatedMatch);
+      } else {
+        setError('Failed to submit match result');
       }
-    }, 1000);
+    } catch (err: any) {
+      setError(err.message || 'An error occurred while submitting the result');
+    } finally {
+      setSubmitting(false);
+    }
   };
-
-  const handleIntentionalDraw = () => {
-    setFormData({
-      player1_wins: 0,
-      player2_wins: 0,
-      draws: 1
-    });
-    
+  
+  const handleIntentionalDraw = async () => {
     setSubmitting(true);
     setError(null);
     
-    // In a real implementation, this would be an API call
-    console.log('Submitting intentional draw');
-    
-    // Simulate successful submission
-    setTimeout(() => {
-      setSubmitting(false);
-      setSuccess(true);
+    try {
+      const result = await MatchService.submitIntentionalDraw(id!);
       
-      if (match) {
-        setMatch({
-          ...match,
-          player1_wins: 0,
-          player2_wins: 0,
-          draws: 1,
-          result: 'draw',
-          status: 'completed'
-        });
+      if (result) {
+        setSuccess(true);
+        // Refresh match data
+        const updatedMatch = await MatchService.getMatchById(id!);
+        setMatch(updatedMatch);
+      } else {
+        setError('Failed to submit intentional draw');
       }
-    }, 1000);
+    } catch (err: any) {
+      setError(err.message || 'An error occurred while submitting the draw');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (loading) {
