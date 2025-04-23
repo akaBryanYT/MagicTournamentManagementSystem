@@ -41,19 +41,78 @@ class CardService:
             return None
     
     def search_cards_by_name(self, name_query):
-        """Search cards by name with autocomplete."""
+        """Search cards by name with autocomplete from Scryfall."""
         try:
-            cards = list(self.db.cards.find({
-                'name': {'$regex': name_query, '$options': 'i'}
-            }).limit(20))
+            import requests
             
-            for card in cards:
-                card['id'] = str(card.pop('_id'))
+            # Use Scryfall API for autocomplete
+            api_url = f"https://api.scryfall.com/cards/autocomplete?q={name_query}"
+            response = requests.get(api_url)
+            
+            if response.status_code != 200:
+                print(f"Error from Scryfall API: {response.status_code}")
+                return []
+            
+            data = response.json()
+            cards = []
+            
+            # Get full card data for each match
+            for card_name in data.get('data', [])[:20]:  # Limit to 20 results
+                card_data = self.get_card_details_from_scryfall(card_name)
+                if card_data:
+                    cards.append(card_data)
             
             return cards
         except Exception as e:
-            print(f"Error searching cards: {e}")
+            print(f"Error searching cards via Scryfall: {e}")
             return []
+
+    def get_card_details_from_scryfall(self, card_name):
+        """Get detailed card information from Scryfall."""
+        try:
+            import requests
+            from urllib.parse import quote
+            
+            encoded_name = quote(card_name)
+            api_url = f"https://api.scryfall.com/cards/named?exact={encoded_name}"
+            response = requests.get(api_url)
+            
+            if response.status_code != 200:
+                # Try fuzzy search if exact match fails
+                api_url = f"https://api.scryfall.com/cards/named?fuzzy={encoded_name}"
+                response = requests.get(api_url)
+                
+                if response.status_code != 200:
+                    return None
+            
+            scryfall_data = response.json()
+            
+            # Map Scryfall data to our card model
+            card = {
+                'name': scryfall_data.get('name', ''),
+                'set_code': scryfall_data.get('set', '').upper(),
+                'collector_number': scryfall_data.get('collector_number', ''),
+                'mana_cost': scryfall_data.get('mana_cost', ''),
+                'type_line': scryfall_data.get('type_line', ''),
+                'oracle_text': scryfall_data.get('oracle_text', ''),
+                'colors': scryfall_data.get('colors', []),
+                'color_identity': scryfall_data.get('color_identity', []),
+                'legalities': scryfall_data.get('legalities', {}),
+                'image_uri': scryfall_data.get('image_uris', {}).get('normal', '')
+            }
+            
+            # Store in database if it doesn't exist
+            existing_card = self.db.cards.find_one({'name': card['name']})
+            if not existing_card:
+                result = self.db.cards.insert_one(card)
+                card['id'] = str(result.inserted_id)
+            else:
+                card['id'] = str(existing_card['_id'])
+            
+            return card
+        except Exception as e:
+            print(f"Error getting card details from Scryfall: {e}")
+            return None
     
     def get_cards_by_set(self, set_code):
         """Get cards by set code."""
