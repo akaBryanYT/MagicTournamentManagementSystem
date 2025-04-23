@@ -90,7 +90,57 @@ const Pairings: React.FC<PairingsProps> = () => {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h1>Round {round} Pairings: {tournamentName}</h1>
         <div>
-          <Button variant="outline-primary" className="me-2">
+          <Button variant="outline-primary" className="me-2" onClick={() => {
+            const content = document.querySelector('.bracket-matches');
+            const printWindow = window.open('', '_blank');
+            
+            if (printWindow && content) {
+              printWindow.document.write(`
+                <html>
+                  <head>
+                    <title>Round ${round} Pairings: ${tournamentName}</title>
+                    <style>
+                      body { font-family: Arial, sans-serif; }
+                      table { border-collapse: collapse; width: 100%; }
+                      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                      th { background-color: #f2f2f2; }
+                    </style>
+                  </head>
+                  <body>
+                    <h1>Round ${round} Pairings: ${tournamentName}</h1>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Table</th>
+                          <th>Player 1</th>
+                          <th>Result</th>
+                          <th>Player 2</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${matches.map(match => `
+                          <tr>
+                            <td>${match.table_number || '-'}</td>
+                            <td>${match.player1_name}</td>
+                            <td>${match.status === 'completed' ? 
+                                `${match.player1_wins}-${match.player2_wins}${match.draws > 0 ? `-${match.draws}` : ''}` : 
+                                'In progress'}</td>
+                            <td>${match.player2_name || 'BYE'}</td>
+                            <td>${match.status}</td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+                  </body>
+                </html>
+              `);
+              printWindow.document.close();
+              printWindow.focus();
+              printWindow.print();
+              printWindow.close();
+            }
+          }}>
             Print Pairings
           </Button>
           <Link to={`/tournaments/${id}`} className="btn btn-outline-secondary">
