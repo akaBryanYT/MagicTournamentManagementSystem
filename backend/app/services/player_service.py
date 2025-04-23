@@ -107,8 +107,8 @@ class PlayerService:
                     params = {
                         'name': player_data['name'],
                         'email': player_data['email'],
-                        'phone': player_data.get('phone', None),
-                        'dci_number': player_data.get('dci_number', None) if player_data.get('dci_number') else None
+                        'phone': player_data.get('phone') if player_data.get('phone') else None,
+                        'dci_number': player_data.get('dci_number') if player_data.get('dci_number') else None
                     }
                     
                     print(f"SQL parameters: {params}")
