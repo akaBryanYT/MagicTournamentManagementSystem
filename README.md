@@ -573,6 +573,13 @@ FLASK_ENV=development
 ```bash
 # Make sure your database is running
 python scripts/init_db.py
+
+# Create tables
+python scripts/create_tables.py
+
+# Add remaining columns to Table
+python scripts/add_structure_column.py
+python scripts/add_structure_config_column.py
 ```
 
 ### Frontend Setup
