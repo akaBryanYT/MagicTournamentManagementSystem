@@ -1,9 +1,8 @@
-// src/components/tournaments/Pairings.tsx
 import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Badge, Spinner, Form, Row, Col, Alert } from 'react-bootstrap';
 import { Link, useParams } from 'react-router-dom';
 import TournamentService from '../../services/tournamentService';
-import { Match } from '../../types';
+import { Match } from '../../types';  // Import the Match type
 
 interface PairingsProps {}
 
@@ -26,7 +25,7 @@ const Pairings: React.FC<PairingsProps> = () => {
   const [tournamentName, setTournamentName] = useState<string>('');
   const [round, setRound] = useState<number>(1);
   const [pairings, setPairings] = useState<Pairing[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,6 +66,62 @@ const Pairings: React.FC<PairingsProps> = () => {
     }
   };
 
+  const handlePrintPairings = () => {
+	if (!pairings || pairings.length === 0) return;
+  
+    // Create the table content using the pairings state variable
+    const tableContent = pairings.map((pairing: Pairing) => `
+      <tr>
+        <td>${pairing.table_number || '-'}</td>
+        <td>${pairing.player1_name}</td>
+        <td>${pairing.status === 'completed' ? 
+            `${pairing.player1_wins}-${pairing.player2_wins}${pairing.draws > 0 ? `-${pairing.draws}` : ''}` : 
+            'In progress'}</td>
+        <td>${pairing.player2_name || 'BYE'}</td>
+        <td>${pairing.status}</td>
+      </tr>
+    `).join('');
+    
+    const printWindow = window.open('', '_blank');
+    
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Round ${round} Pairings: ${tournamentName}</title>
+            <style>
+              body { font-family: Arial, sans-serif; }
+              table { border-collapse: collapse; width: 100%; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              th { background-color: #f2f2f2; }
+            </style>
+          </head>
+          <body>
+            <h1>Round ${round} Pairings: ${tournamentName}</h1>
+            <table>
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th>Player 1</th>
+                  <th>Result</th>
+                  <th>Player 2</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableContent}
+              </tbody>
+            </table>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    }
+  };
+
   if (loading) {
     return (
       <div className="text-center my-5">
@@ -80,7 +135,7 @@ const Pairings: React.FC<PairingsProps> = () => {
   if (error) {
     return (
       <Alert variant="danger">
-        Error: {error}
+        {error}
       </Alert>
     );
   }
@@ -90,57 +145,11 @@ const Pairings: React.FC<PairingsProps> = () => {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h1>Round {round} Pairings: {tournamentName}</h1>
         <div>
-          <Button variant="outline-primary" className="me-2" onClick={() => {
-            const content = document.querySelector('.bracket-matches');
-            const printWindow = window.open('', '_blank');
-            
-            if (printWindow && content) {
-              printWindow.document.write(`
-                <html>
-                  <head>
-                    <title>Round ${round} Pairings: ${tournamentName}</title>
-                    <style>
-                      body { font-family: Arial, sans-serif; }
-                      table { border-collapse: collapse; width: 100%; }
-                      th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                      th { background-color: #f2f2f2; }
-                    </style>
-                  </head>
-                  <body>
-                    <h1>Round ${round} Pairings: ${tournamentName}</h1>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Table</th>
-                          <th>Player 1</th>
-                          <th>Result</th>
-                          <th>Player 2</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${matches.map(match => `
-                          <tr>
-                            <td>${match.table_number || '-'}</td>
-                            <td>${match.player1_name}</td>
-                            <td>${match.status === 'completed' ? 
-                                `${match.player1_wins}-${match.player2_wins}${match.draws > 0 ? `-${match.draws}` : ''}` : 
-                                'In progress'}</td>
-                            <td>${match.player2_name || 'BYE'}</td>
-                            <td>${match.status}</td>
-                          </tr>
-                        `).join('')}
-                      </tbody>
-                    </table>
-                  </body>
-                </html>
-              `);
-              printWindow.document.close();
-              printWindow.focus();
-              printWindow.print();
-              printWindow.close();
-            }
-          }}>
+          <Button 
+            variant="outline-primary" 
+            className="me-2" 
+            onClick={handlePrintPairings}
+          >
             Print Pairings
           </Button>
           <Link to={`/tournaments/${id}`} className="btn btn-outline-secondary">

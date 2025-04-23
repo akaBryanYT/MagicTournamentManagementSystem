@@ -394,6 +394,61 @@ const TournamentDetail: React.FC = () => {
       setRegistering(false);
     }
   };
+  
+  const handlePrintPairings = () => {
+    if (!matches || matches.length === 0 || !tournament) return;
+    
+    const tableContent = matches.map((match) => `
+      <tr>
+        <td>${match.table_number || '-'}</td>
+        <td>${match.player1_name}</td>
+        <td>${match.status === 'completed' ? 
+            `${match.player1_wins}-${match.player2_wins}${match.draws > 0 ? `-${match.draws}` : ''}` : 
+            'In progress'}</td>
+        <td>${match.player2_name || 'BYE'}</td>
+        <td>${match.status}</td>
+      </tr>
+    `).join('');
+    
+    const printWindow = window.open('', '_blank');
+    
+    if (printWindow) {
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Tournament Pairings - ${tournament.name}</title>
+            <style>
+              body { font-family: Arial, sans-serif; }
+              table { border-collapse: collapse; width: 100%; }
+              th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+              th { background-color: #f2f2f2; }
+            </style>
+          </head>
+          <body>
+            <h1>Round ${tournament.current_round} Pairings: ${tournament.name}</h1>
+            <table>
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th>Player 1</th>
+                  <th>Result</th>
+                  <th>Player 2</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableContent}
+              </tbody>
+            </table>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -857,36 +912,14 @@ const TournamentDetail: React.FC = () => {
                 </h5>
 				{tournament.status === 'active' && (
 				<div>
-					<Button variant="outline-primary" size="sm" onClick={() => {
-					const content = document.querySelector('.tournament-pairings-content');
-					const printWindow = window.open('', '_blank');
-					
-					if (printWindow && content) {
-						printWindow.document.write(`
-						<html>
-							<head>
-							<title>Tournament Pairings - ${tournament.name}</title>
-							<style>
-								body { font-family: Arial, sans-serif; }
-								table { border-collapse: collapse; width: 100%; }
-								th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-								th { background-color: #f2f2f2; }
-							</style>
-							</head>
-							<body>
-							<h1>Round ${tournament.current_round} Pairings: ${tournament.name}</h1>
-							${content.innerHTML}
-							</body>
-						</html>
-						`);
-						printWindow.document.close();
-						printWindow.focus();
-						printWindow.print();
-						printWindow.close();
-					}
-					}} className="me-2">
-					Print Pairings
-					</Button>
+					<Button 
+                      variant="outline-primary" 
+                      size="sm" 
+                      onClick={handlePrintPairings} 
+                      className="me-2"
+                    >
+                      Print Pairings
+                    </Button>
 					<Link to={`/tournaments/${id}/pairings`} className="btn btn-sm btn-primary">
 					Full Pairings View
 					</Link>
