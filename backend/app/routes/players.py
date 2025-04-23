@@ -56,6 +56,28 @@ def update_player(player_id):
     if success:
         return jsonify({'message': 'Player updated successfully'}), 200
     return jsonify({'error': 'Failed to update player'}), 404
+    
+@bp.route('/<player_id>/status', methods=['PATCH'])
+def toggle_player_status(player_id):
+    """Toggle player active status."""
+    try:
+        data = request.get_json()
+        
+        if 'active' not in data:
+            return jsonify({'error': 'Missing required field: active'}), 400
+        
+        active = data['active']
+        
+        # Update player status
+        success = player_service.update_player(player_id, {'active': active})
+        if success:
+            return jsonify({'message': 'Player status updated successfully'}), 200
+        return jsonify({'error': 'Failed to update player status'}), 404
+    except Exception as e:
+        print(f"Error in toggle_player_status route: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @bp.route('/<player_id>', methods=['DELETE'])
 def delete_player(player_id):
