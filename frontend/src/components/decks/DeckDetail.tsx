@@ -16,7 +16,7 @@ interface Deck {
   validation_status: string;
   validation_errors: string[];
   created_at: string;
-  main_deck: {name: string, quantity: number}[];
+  mainDeck: {name: string, quantity: number}[];
   sideboard: {name: string, quantity: number}[];
 }
 

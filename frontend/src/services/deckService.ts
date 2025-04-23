@@ -90,9 +90,11 @@ const DeckService = {
   },
 
   // Validate deck
-  validateDeck: async (id: string) => {
+  validateDeck: async (id: string, format: string) => {
     try {
-      const response = await apiClient.post(`/decks/${id}/validate`);
+      const response = await apiClient.post(`/decks/${id}/validate`, {
+		format_name: format
+	  });
       return response.data;
     } catch (error) {
       console.error('Error validating deck:', error);
