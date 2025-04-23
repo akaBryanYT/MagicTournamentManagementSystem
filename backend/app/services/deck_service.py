@@ -254,6 +254,95 @@ class DeckService:
         except Exception as e:
             print(f"Error getting deck cards: {e}")
             return []
+            
+    def import_deck_from_moxfield(self, player_id, tournament_id, moxfield_url, format_name, name=None):
+        """Import a deck from Moxfield URL."""
+        try:
+            # Validate URL format
+            if not moxfield_url or 'moxfield.com/decks/' not in moxfield_url:
+                print("Invalid Moxfield URL format")
+                return None
+            
+            # Extract deck ID from URL
+            deck_id = moxfield_url.split('moxfield.com/decks/')[1].split('/')[0].split('?')[0]
+            
+            # Fetch deck data from Moxfield API
+            api_url = f"https://api.moxfield.com/v2/decks/all/{deck_id}"
+            response = requests.get(api_url)
+            
+            if response.status_code != 200:
+                print(f"Error fetching deck from Moxfield: {response.status_code}")
+                return None
+            
+            deck_data = response.json()
+            
+            # Process main deck
+            main_deck = []
+            for card_name, card_info in deck_data.get('mainboard', {}).items():
+                main_deck.append({
+                    'name': card_name,
+                    'quantity': card_info.get('quantity', 1)
+                })
+            
+            # Process sideboard
+            sideboard = []
+            for card_name, card_info in deck_data.get('sideboard', {}).items():
+                sideboard.append({
+                    'name': card_name,
+                    'quantity': card_info.get('quantity', 1)
+                })
+            
+            # Create deck
+            deck_name = name or deck_data.get('name', 'Imported Moxfield Deck')
+            
+            if self.db_type == 'mongodb':
+                deck_data = {
+                    'name': deck_name,
+                    'player_id': player_id,
+                    'tournament_id': tournament_id,
+                    'format': format_name,
+                    'main_deck': main_deck,
+                    'sideboard': sideboard,
+                    'validation_status': 'pending',
+                    'created_at': datetime.utcnow().isoformat(),
+                    'updated_at': datetime.utcnow().isoformat()
+                }
+                
+                result = self.db.decks.insert_one(deck_data)
+                return str(result.inserted_id)
+            else:
+                # PostgreSQL implementation
+                result = self.db.execute(text("""
+                    INSERT INTO decks (
+                        name, player_id, tournament_id, format,
+                        created_at, updated_at, validation_status
+                    ) VALUES (
+                        :name, :player_id, :tournament_id, :format,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'pending'
+                    ) RETURNING id
+                """), {
+                    'name': deck_name,
+                    'player_id': int(player_id),
+                    'tournament_id': int(tournament_id),
+                    'format': format_name
+                })
+                
+                deck_id = result.scalar()
+                
+                # Insert deck cards
+                if main_deck:
+                    self._insert_deck_cards_sql(deck_id, main_deck, False)
+                
+                if sideboard:
+                    self._insert_deck_cards_sql(deck_id, sideboard, True)
+                
+                self.db.commit()
+                return str(deck_id)
+        except Exception as e:
+            print(f"Error importing deck from Moxfield: {e}")
+            if self.db_type == 'postgresql':
+                self.db.rollback()
+            return None
     
     def create_deck(self, deck_data):
         """Create a new deck."""

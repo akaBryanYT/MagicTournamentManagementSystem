@@ -71,23 +71,48 @@ def delete_deck(deck_id):
 
 @bp.route('/import', methods=['POST'])
 def import_deck():
-    """Import a deck from text format."""
+    """Import a deck from text format or Moxfield URL."""
     data = request.get_json()
     
-    # Validate required fields
-    required_fields = ['player_id', 'tournament_id', 'deck_text', 'format']
-    for field in required_fields:
-        if field not in data:
-            return jsonify({'error': f'Missing required field: {field}'}), 400
-    
-    # Import deck
-    deck_id = deck_service.import_deck_from_text(
-        data['player_id'],
-        data['tournament_id'],
-        data['deck_text'],
-        data['format'],
-        data.get('name', 'Imported Deck')
-    )
+    # Check if this is a Moxfield import
+    if 'moxfield_url' in data:
+        # Validate required fields for Moxfield import
+        required_fields = ['player_id', 'tournament_id', 'moxfield_url']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Get format from tournament if not provided
+        if 'format' not in data:
+            tournament = tournament_service.get_tournament_by_id(data['tournament_id'])
+            if tournament:
+                data['format'] = tournament.get('format', 'standard')
+            else:
+                data['format'] = 'standard'
+        
+        # Import deck from Moxfield
+        deck_id = deck_service.import_deck_from_moxfield(
+            data['player_id'],
+            data['tournament_id'],
+            data['moxfield_url'],
+            data.get('format', 'standard'),
+            data.get('name', 'Moxfield Deck')
+        )
+    else:
+        # Validate required fields for text import
+        required_fields = ['player_id', 'tournament_id', 'deck_text', 'format']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Import deck from text
+        deck_id = deck_service.import_deck_from_text(
+            data['player_id'],
+            data['tournament_id'],
+            data['deck_text'],
+            data['format'],
+            data.get('name', 'Imported Deck')
+        )
     
     if deck_id:
         return jsonify({'id': deck_id, 'message': 'Deck imported successfully'}), 201
