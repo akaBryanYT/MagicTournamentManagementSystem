@@ -27,8 +27,26 @@ const PlayerList: React.FC<PlayerListProps> = () => {
       try {
         setLoading(true);
         const response = await PlayerService.getAllPlayers();
-        setPlayers((response.players || []) as unknown as Player[]);
-        setFilteredPlayers((response.players || []) as unknown as Player[]);
+        console.log("Player response:", response); // Debug: log the response
+        
+        // Ensure the players array is properly accessed
+        let playerData = [];
+        if (Array.isArray(response)) {
+          playerData = response;
+        } else if (response && Array.isArray(response.players)) {
+          playerData = response.players;
+        } else {
+          playerData = [];
+        }
+        
+        // Add tournamentCount if missing
+        const processedPlayers = playerData.map((player: any) => ({
+          ...player,
+          tournamentCount: player.tournamentCount || 0
+        }));
+        
+        setPlayers(processedPlayers);
+        setFilteredPlayers(processedPlayers);
       } catch (err) {
         console.error("Error fetching players:", err);
       } finally {
