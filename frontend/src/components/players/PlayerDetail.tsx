@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Table, Button, Badge, Tabs, Tab, Alert, Row, Col, Spinner } from 'react-bootstrap';
 import { Link, useParams, useNavigate } from 'react-router-dom';
+import PlayerService from '../../services/playerService';
+import TournamentService from '../../services/tournamentService';
+import DeckService from '../../services/deckService';
 
 interface PlayerDetailProps {}
 
@@ -41,81 +44,51 @@ const PlayerDetail: React.FC<PlayerDetailProps> = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // In a real implementation, these would be API calls
-    // For now, we'll use mock data
-    const mockPlayer: Player = {
-      id: id || 'p1',
-      name: 'John Doe',
-      email: 'john.doe@example.com',
-      phone: '555-123-4567',
-      dci_number: '12345678',
-      active: true,
-      created_at: '2025-01-15T12:00:00Z'
+    const fetchPlayerData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Fetch player details
+        const playerData = await PlayerService.getPlayerById(id!);
+        setPlayer(playerData);
+        
+        // Fetch player tournaments
+        const tournamentsData = await PlayerService.getPlayerTournaments(id!);
+        setTournaments(tournamentsData || []);
+        
+        // Fetch player decks
+        const decksData = await PlayerService.getPlayerDecks(id!);
+        setDecks(decksData || []);
+        
+      } catch (err: any) {
+        console.error("Error fetching player data:", err);
+        setError(err.message || "Failed to load player data");
+      } finally {
+        setLoading(false);
+      }
     };
-
-    const mockTournaments: Tournament[] = [
-      {
-        id: 't1',
-        name: 'Friday Night Magic',
-        format: 'Standard',
-        date: '2025-03-31',
-        status: 'active'
-      },
-      {
-        id: 't2',
-        name: 'Draft Weekend',
-        format: 'Draft',
-        date: '2025-03-28',
-        status: 'completed'
-      },
-      {
-        id: 't3',
-        name: 'Modern Showdown',
-        format: 'Modern',
-        date: '2025-03-25',
-        status: 'completed'
-      }
-    ];
-
-    const mockDecks: Deck[] = [
-      {
-        id: 'd1',
-        name: 'Mono Red Aggro',
-        format: 'Standard',
-        tournament_id: 't1',
-        tournament_name: 'Friday Night Magic',
-        validation_status: 'valid'
-      },
-      {
-        id: 'd2',
-        name: 'Draft Deck',
-        format: 'Draft',
-        tournament_id: 't2',
-        tournament_name: 'Draft Weekend',
-        validation_status: 'valid'
-      },
-      {
-        id: 'd3',
-        name: 'Tron',
-        format: 'Modern',
-        tournament_id: 't3',
-        tournament_name: 'Modern Showdown',
-        validation_status: 'valid'
-      }
-    ];
-
-    setPlayer(mockPlayer);
-    setTournaments(mockTournaments);
-    setDecks(mockDecks);
-    setLoading(false);
+    
+    if (id) {
+      fetchPlayerData();
+    }
   }, [id]);
 
-  const handleActivateDeactivate = () => {
+  const handleActivateDeactivate = async () => {
     if (player) {
-      setPlayer({
-        ...player,
-        active: !player.active
-      });
+      try {
+        const newStatus = !player.active;
+        await PlayerService.togglePlayerStatus(player.id, newStatus);
+        
+        // Update local state to reflect the change
+        setPlayer({
+          ...player,
+          active: newStatus
+        });
+      } catch (err) {
+        console.error("Error toggling player status:", err);
+        setError("Failed to update player status");
+      }
     }
   };
 
@@ -207,12 +180,15 @@ const PlayerDetail: React.FC<PlayerDetailProps> = () => {
                   </tr>
                   <tr>
                     <th>Registered Since</th>
-                    <td>{new Date(player.created_at).toLocaleDateString()}</td>
+                    <td>{player.created_at ? new Date(player.created_at).toLocaleDateString() : 'Unknown'}</td>
                   </tr>
                 </tbody>
               </Table>
               <div className="mt-3">
-                <Button variant="primary">
+                <Button 
+                  variant="primary"
+                  onClick={() => navigate(`/players/edit/${player.id}`)}
+                >
                   Edit Player
                 </Button>
               </div>
@@ -225,10 +201,22 @@ const PlayerDetail: React.FC<PlayerDetailProps> = () => {
             <Card.Header>Quick Actions</Card.Header>
             <Card.Body>
               <div className="d-grid gap-2">
-                <Link to="/decks/create" className="btn btn-primary">
+                <Link 
+                  to={{
+                    pathname: "/decks/create",
+                    search: `?playerId=${player.id}`
+                  }} 
+                  className="btn btn-primary"
+                >
                   Register New Deck
                 </Link>
-                <Link to="/tournaments" className="btn btn-primary">
+                <Link 
+                  to={{
+                    pathname: "/tournaments",
+                    search: `?playerId=${player.id}`
+                  }} 
+                  className="btn btn-primary"
+                >
                   Register for Tournament
                 </Link>
                 <Button variant="outline-primary">
@@ -291,7 +279,13 @@ const PlayerDetail: React.FC<PlayerDetailProps> = () => {
             <Card.Body>
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <h5 className="mb-0">Registered Decks</h5>
-                <Link to="/decks/create" className="btn btn-sm btn-success">
+                <Link 
+                  to={{
+                    pathname: "/decks/create",
+                    search: `?playerId=${player.id}`
+                  }}
+                  className="btn btn-sm btn-success"
+                >
                   Register New Deck
                 </Link>
               </div>
@@ -319,7 +313,9 @@ const PlayerDetail: React.FC<PlayerDetailProps> = () => {
                         </td>
                         <td>{deck.format}</td>
                         <td>
-                          <Link to={`/tournaments/${deck.tournament_id}`}>{deck.tournament_name}</Link>
+                          <Link to={`/tournaments/${deck.tournament_id}`}>
+                            {deck.tournament_name || 'Unknown Tournament'}
+                          </Link>
                         </td>
                         <td>{getValidationStatusBadge(deck.validation_status)}</td>
                         <td>
@@ -327,7 +323,20 @@ const PlayerDetail: React.FC<PlayerDetailProps> = () => {
                             <Link to={`/decks/${deck.id}`} className="btn btn-sm btn-primary">
                               View
                             </Link>
-                            <Button variant="sm btn-outline-secondary">
+                            <Button 
+                              variant="sm btn-outline-secondary"
+                              onClick={async () => {
+                                try {
+                                  const result = await DeckService.exportDeckToText(deck.id);
+                                  // Copy to clipboard
+                                  navigator.clipboard.writeText(result.deck_text)
+                                    .then(() => alert('Deck list copied to clipboard!'))
+                                    .catch(() => alert('Failed to copy deck list to clipboard'));
+                                } catch (err) {
+                                  console.error('Error exporting deck:', err);
+                                }
+                              }}
+                            >
                               Export
                             </Button>
                           </div>
