@@ -52,7 +52,7 @@ const MatchService = {
 
   // Submit intentional draw
   submitIntentionalDraw: async (id: string) => {
-    const response = await apiClient.post(`/matches/${id}/intentional-draw`);
+    const response = await apiClient.post(`/matches/${id}/draw`);
     return response.data;
   },
 
