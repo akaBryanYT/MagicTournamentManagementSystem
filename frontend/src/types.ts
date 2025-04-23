@@ -1,5 +1,5 @@
 export interface Tournament {
-  id?: string;  // Changed from just string to accept undefined
+  id?: string;
   name: string;
   format: string;
   date: string;
@@ -11,6 +11,7 @@ export interface Tournament {
   structure?: string;
   location?: string;
   time_limit?: number;
+  timeLimit?: number;
   structure_config?: {
     allow_intentional_draws?: boolean;
     use_seeds_for_byes?: boolean;
@@ -21,7 +22,7 @@ export interface Tournament {
   format_config?: {
     podSize?: number;
     packsPerPlayer?: number;
-    pointSystem?: string;  // Added missing property
+    pointSystem?: string;
   };
   tiebreakers?: {
     match_points: boolean;
