@@ -26,11 +26,11 @@ body {
   color: white !important;
 }
 
-.nav-link {
+.navbar .nav-link {
   color: rgba(255, 255, 255, 0.8) !important;
 }
 
-.nav-link:hover {
+.navbar .nav-link:hover {
   color: white !important;
 }
 

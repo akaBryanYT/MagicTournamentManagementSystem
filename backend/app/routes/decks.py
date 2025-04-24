@@ -4,9 +4,11 @@ Deck API routes for the Tournament Management System.
 
 from flask import Blueprint, request, jsonify
 from app.services.deck_service import DeckService
+from app.services.tournament_service import TournamentService
 
 bp = Blueprint('decks', __name__, url_prefix='/api/decks')
 deck_service = DeckService()
+tournament_service = TournamentService()
 
 @bp.route('', methods=['GET'])
 def get_decks():

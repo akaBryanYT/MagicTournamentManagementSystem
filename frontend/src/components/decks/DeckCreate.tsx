@@ -31,7 +31,8 @@ const DeckCreate: React.FC = () => {
   const preselectedTournamentId = queryParams.get('tournamentId');
   const preselectedPlayerId = queryParams.get('playerId');
   
-  const [activeTab, setActiveTab] = useState<string>('moxfield');
+  // default to text-import so users can simply paste a list
+  const [activeTab, setActiveTab] = useState<string>('import');
   const [loading, setLoading] = useState<boolean>(false);
   const [loadingPlayers, setLoadingPlayers] = useState<boolean>(true);
   const [loadingTournaments, setLoadingTournaments] = useState<boolean>(true);
@@ -203,63 +204,78 @@ const DeckCreate: React.FC = () => {
       setError('Please enter deck list text');
       return;
     }
-
+  
     try {
-      const lines = formData.deckText.split('\n');
-      const mainDeck: CardItem[] = [];
-      const sideboard: CardItem[] = [];
-      
+      /* -------------------------------------------------
+         Accepts:
+         • “3x Lightning Bolt (2X2) 150”
+         • “SB: 2 Force of Will”
+         • “// Sideboard”, “Sideboard”, “Companion”, etc.
+         • blank lines, comment lines starting with // or #
+         ------------------------------------------------- */
+      const main: CardItem[] = [];
+      const side: CardItem[] = [];
+      const seenMain: Record<string, number> = {};
+      const seenSide: Record<string, number> = {};
+  
+      //  qty   name   ignore the rest ----------------------------------+
+	  const cardLine = /^(\d+)[xX]?\s+([^(]+)\s*(?:\([A-Za-z0-9]{2,5}\))?.*$/;
       let inSideboard = false;
-      
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        
-        // Skip empty lines
-        if (!trimmedLine) continue;
-        
-        // Check for sideboard marker
-        if (trimmedLine.toLowerCase().includes('//') && trimmedLine.toLowerCase().includes('sideboard')) {
+  
+      formData.deckText.split('\n').forEach(raw => {
+        let line = raw.trim();
+        if (!line) return;
+  
+        const lower = line.toLowerCase();
+  
+        // sideboard section flags
+        if (
+          lower.startsWith('sb:') ||
+          (lower.startsWith('//') && lower.includes('sideboard')) ||
+          lower === 'sideboard'
+        ) {
           inSideboard = true;
-          continue;
+          // drop the “SB:” prefix if the card lives on the same line
+          if (lower.startsWith('sb:')) line = line.slice(3).trim();
+          if (!line) return;
         }
-        
-        // Skip other comment lines
-        if (trimmedLine.startsWith('//')) continue;
-        
-        // Parse card line (e.g., "4 Lightning Bolt" or "1 Prime Speaker Zegana (FDN) 664")
-        const match = trimmedLine.match(/^(\d+)\s+([^(]+?)(?:\s+\(([A-Z0-9]+)\))?(?:\s+(\d+))?$/);
-        if (match) {
-          const quantity = parseInt(match[1], 10);
-          const cardName = match[2].trim();
-          
-          const cardEntry = { name: cardName, quantity };
-          
-          if (inSideboard) {
-            sideboard.push(cardEntry);
-          } else {
-            mainDeck.push(cardEntry);
-          }
+  
+        // ignore headers we don’t track
+        if (
+          lower.startsWith('//') ||
+          lower === 'commander' ||
+          lower === 'companion' ||
+          lower.includes('maybeboard')
+        )
+          return;
+  
+        const match = line.match(cardLine);
+        if (!match) return; // silently skip malformed lines
+  
+        const qty = Number(match[1]);
+        const name = match[2].trim();
+  
+        if (inSideboard) {
+          seenSide[name] = (seenSide[name] || 0) + qty;
+        } else {
+          seenMain[name] = (seenMain[name] || 0) + qty;
         }
-      }
-      
-      if (mainDeck.length === 0) {
+      });
+  
+      Object.entries(seenMain).forEach(([n, q]) => main.push({ name: n, quantity: q }));
+      Object.entries(seenSide).forEach(([n, q]) => side.push({ name: n, quantity: q }));
+  
+      if (!main.length) {
         setError('No valid cards found in the deck list');
         return;
       }
-
-      setParsedDeck({ mainDeck, sideboard });
+  
+      setParsedDeck({ mainDeck: main, sideboard: side });
       setError(null);
       setSuccess('Deck list parsed successfully');
-
-      // Also update the form data
-      setFormData(prev => ({
-        ...prev,
-        mainDeck,
-        sideboard
-      }));
     } catch (err) {
-      console.error('Error parsing deck list:', err);
-      setError('Failed to parse deck list. Please check the format.');
+      console.error(err);
+      setError('Failed to parse deck list – please check the format.');
     }
   };
 
@@ -290,19 +306,26 @@ const DeckCreate: React.FC = () => {
           formData.name
         );
         deckId = result.id;
-      } else if ((activeTab === 'import' && parsedDeck) || 
-                 (activeTab === 'manual' && formData.mainDeck.length > 0)) {
-        // Submit parsed deck or manually added cards
-        const deckData = {
+      } else if (activeTab === 'import' && formData.deckText.trim()) {
+        // Let the server do the heavy lifting
+        const result = await DeckService.importDeckFromText(
+          formData.player_id,
+          formData.tournament_id,
+          formData.deckText,
+          formData.format,
+          formData.name
+        );
+        deckId = result.id;
+      } else if (activeTab === 'manual' && formData.mainDeck.length > 0) {
+        // manual build stays the same
+        const result = await DeckService.createDeck({
           name: formData.name,
           player_id: formData.player_id,
           tournament_id: formData.tournament_id,
           format: formData.format,
-          main_deck: activeTab === 'import' ? parsedDeck!.mainDeck : formData.mainDeck,
-          sideboard: activeTab === 'import' ? parsedDeck!.sideboard : formData.sideboard
-        };
-        
-        const result = await DeckService.createDeck(deckData);
+          main_deck: formData.mainDeck,
+          sideboard: formData.sideboard
+        });
         deckId = result.id;
       } else {
         throw new Error('No valid deck data provided');
@@ -455,7 +478,7 @@ const DeckCreate: React.FC = () => {
                 </Form.Group>
               </Tab>
               
-              <Tab eventKey="import" title="Import from Text">
+              <Tab eventKey="import" title="Paste Deck Text">
                 <Form.Group className="mb-3">
                   <Form.Label>Paste Deck List</Form.Label>
                   <Form.Text className="text-muted d-block mb-2">
@@ -469,10 +492,10 @@ const DeckCreate: React.FC = () => {
                     value={formData.deckText}
                     onChange={handleChange}
                     placeholder="1 Prime Speaker Zegana (FDN) 664
-1 Ambuscade (2X2) 133
-1 Apothecary Stomper (FDN) 99
-// Sideboard
-2 Naturalize (M19) 190"
+                      1 Ambuscade (2X2) 133
+                      1 Apothecary Stomper (FDN) 99
+                      // Sideboard
+                      2 Naturalize (M19) 190"
                   />
                 </Form.Group>
                 <Button 

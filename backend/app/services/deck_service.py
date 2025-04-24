@@ -7,6 +7,9 @@ from bson.objectid import ObjectId
 from app.models.database import DatabaseConfig
 from sqlalchemy import text
 import json
+import requests
+import re
+from collections import defaultdict
 
 class DeckService:
     """Service for deck operations."""
@@ -254,7 +257,58 @@ class DeckService:
         except Exception as e:
             print(f"Error getting deck cards: {e}")
             return []
-            
+       
+    # ------------------------------------------------------------
+    #  PRIVATE ─ text-to-cards helper
+    # ------------------------------------------------------------
+    def _parse_deck_text(self, deck_text):
+        """
+        Converts a raw decklist string into main/side arrays.
+        Returns (main_list, side_list) where each list item is
+        {'name': str, 'quantity': int}.
+        """
+        line_re = re.compile(
+            r'^(\d+)[xX]?\s+([^(]+)\s*(?:\([A-Za-z0-9]{2,5}\))?.*$'
+        )
+
+        main, side = defaultdict(int), defaultdict(int)
+        in_side = False
+
+        for raw in deck_text.splitlines():
+            l = raw.strip()
+            if not l:
+                continue
+            low = l.lower()
+
+            if (
+                low.startswith('sb:') or
+                (low.startswith('//') and 'sideboard' in low) or
+                low == 'sideboard'
+            ):
+                in_side = True
+                if low.startswith('sb:'):
+                    l = l[3:].strip()  # allow “SB: 2 Force of Will”
+                if not l:
+                    continue
+
+            if low.startswith('//') or low.startswith('#') or \
+               low in ('commander', 'companion') or 'maybeboard' in low:
+                continue
+
+            m = line_re.match(l)
+            if not m:
+                continue
+
+            qty = int(m.group(1))
+            name = m.group(2).strip()
+
+            (side if in_side else main)[name] += qty
+
+        main_list = [{'name': n, 'quantity': q} for n, q in main.items()]
+        side_list = [{'name': n, 'quantity': q} for n, q in side.items()]
+        return main_list, side_list
+
+       
     def import_deck_from_moxfield(self, player_id, tournament_id, moxfield_url, format_name, name=None):
         """Import a deck from Moxfield URL."""
         try:
@@ -343,6 +397,27 @@ class DeckService:
             if self.db_type == 'postgresql':
                 self.db.rollback()
             return None
+    
+    def import_deck_from_text(self, player_id, tournament_id, deck_text,
+                              format_name='standard', name=None):
+        """Import a deck from a pasted text list."""
+        main_deck, sideboard = self._parse_deck_text(deck_text)
+        if not main_deck:
+            print("No main-deck cards found while parsing text import")
+            return None
+
+        deck_data = {
+            'name': name or 'Imported Deck',
+            'player_id': player_id,
+            'tournament_id': tournament_id,
+            'format': format_name,
+            'main_deck': main_deck,
+            'sideboard': sideboard,
+            'validation_status': 'pending'
+        }
+        # Delegate to the existing create-deck logic so we stay DRY
+        return self.create_deck(deck_data)
+
     
     def create_deck(self, deck_data):
         """Create a new deck."""
